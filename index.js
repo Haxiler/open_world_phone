@@ -1,71 +1,39 @@
 (function () {
     const STORAGE_PREFIX = "ow_phone_v3_";
     
-    // 表情包字典 (请保留你整理好的完整列表)
-    const EMOJI_DB = [
-        // --- 基础互动 ---
-        { label: "打招呼", url: "https://sharkpan.xyz/f/LgwT7/AC229A80203166B292155ADA057DE423_0.gif" },
-        { label: "开心", url: "https://sharkpan.xyz/f/aVwtY/0CBEE9105C7A98E0E6162A79CCD09EFA_0.gif" },
-        { label: "爱心", url: "https://sharkpan.xyz/f/53nhj/345FFC998474F46C1A40B1567335DA03_0.gif" },
-        { label: "给你爱", url: "https://files.catbox.moe/sqa7c9.jpg" },
-        { label: "好的", url: "https://files.catbox.moe/71kn5e.png" },
-        { label: "晚安", url: "https://files.catbox.moe/duzx7n.png" },
+    let EMOJI_DB = []; 
 
-        // --- 卖萌/撒娇 ---
-        { label: "乖巧", url: "https://files.catbox.moe/4dnzcq.png" },
-        { label: "害羞", url: "https://files.catbox.moe/ssgpgy.jpg" },
-        { label: "飞奔", url: "https://sharkpan.xyz/f/kDOi6/0A231BF0BFAB3C2B243F9749B64F7444_0.gif" },
-        { label: "蹭蹭", url: "https://files.catbox.moe/9p0x2t.png" },
-        { label: "期待", url: "https://files.catbox.moe/i0ov5h.png" },
-        { label: "送花", url: "https://files.catbox.moe/s1t2kd.jpg" },
-        { label: "可怜", url: "https://sharkpan.xyz/f/XgmcW/817B66DAB2414E1FC8D717570A602193_0.gif" },
-        { label: "流口水", url: "https://sharkpan.xyz/f/j36f6/3010464DF8BD77B4A99AB23730F2EE57_0.gif" },
+    const State = {
+        contacts: {}, 
+        currentChat: null,
+        isOpen: false,
+        isDragging: false,
+        userName: "User",
+        currentChatFileId: null,
+    };
 
-        // --- 负面情绪/拒绝 ---
-        { label: "哭哭", url: "https://files.catbox.moe/rw1cfk.png" },
-        { label: "大哭", url: "https://files.catbox.moe/dbyrdf.png" },
-        { label: "委屈", url: "https://sharkpan.xyz/f/gVySw/D90D0B53802301FCDB1F0718DEB08C79_0.gif" },
-        { label: "生气", url: "https://files.catbox.moe/si6f0k.png" },
-        { label: "不爽", url: "https://files.catbox.moe/amelbv.png" },
-        { label: "嫌弃", url: "https://files.catbox.moe/t2e0nt.png" },
-        { label: "无语", url: "https://files.catbox.moe/wgkwjh.png" },
-        { label: "拒绝", url: "https://files.catbox.moe/bos6mn.jpg" },
-        { label: "心碎", url: "https://files.catbox.moe/ueqlfe.jpg" },
-        { label: "压力", url: "https://files.catbox.moe/ufz3ek.jpg" },
+    function init() {
+        console.log("[OW Phone] Init v3.3 - Optimized");
+        
+        $.getJSON('/extensions/open_world_phone/emojis.json', function(data) {
+            console.log("[OW Phone] 表情包加载成功");
+            EMOJI_DB = data;
+            renderEmojiPanel(); // 加载完再渲染面板
+        }).fail(function() {
+            console.error("[OW Phone] 表情包加载失败，请检查文件路径");
+        });
 
-        // --- 攻击性/怼人 ---
-        { label: "顶嘴", url: "https://sharkpan.xyz/f/vVBtL/mmexport1737057690899.png" },
-        { label: "揍你", url: "https://sharkpan.xyz/f/oJ1i4/mmexport1737057862640.gif" },
-        { label: "撞飞", url: "https://sharkpan.xyz/f/zMZu5/mmexport1737057848709.gif" },
-        { label: "锁喉", url: "https://files.catbox.moe/mi8tk3.jpg" },
-        { label: "滚", url: "https://sharkpan.xyz/f/1vAc2/mmexport1737057678306.png" },
-        { label: "比中指", url: "https://files.catbox.moe/umpgjb.jpg" },
-        { label: "吃屎", url: "https://files.catbox.moe/r26gox.png" },
-        { label: "你是坏蛋", url: "https://sharkpan.xyz/f/8r2Sj/mmexport1737057726579.png" },
-        { label: "我恨你", url: "https://files.catbox.moe/r6g32h.png" },
-
-        // --- 搞笑/发疯/阴阳怪气 ---
-        { label: "疑惑", url: "https://files.catbox.moe/gofdox.jpg" },
-        { label: "震惊", url: "https://files.catbox.moe/q7683x.png" },
-        { label: "尴尬", url: "https://files.catbox.moe/8eaawd.png" },
-        { label: "偷看", url: "https://files.catbox.moe/72wkme.png" },
-        { label: "发疯", url: "https://files.catbox.moe/8cqr43.jpg" },
-        { label: "已老实", url: "https://files.catbox.moe/6eyzlg.png" },
-        { label: "喝茶", url: "https://files.catbox.moe/1xvrb8.jpg" }, // 大人请用茶
-        { label: "免礼", url: "https://sharkpan.xyz/f/pO6uQ/mmexport1737057701883.png" },
-        { label: "满意", url: "https://sharkpan.xyz/f/e8KUw/mmexport1737057664689.png" },
-        { label: "好困", url: "https://files.catbox.moe/7pncr1.jpg" },
-        { label: "躺平", url: "https://files.catbox.moe/cq6ipd.png" },
-        { label: "升天", url: "https://files.catbox.moe/o8td90.png" },
-        { label: "大脑短路", url: "https://files.catbox.moe/d41e2q.png" },
-        { label: "吃瓜", url: "https://files.catbox.moe/428w1c.png" }, // 围观
-        { label: "吐魂", url: "https://files.catbox.moe/7yejey.png" },
-
-        // --- 特殊类 ---
-        { label: "我是狗", url: "https://files.catbox.moe/1bki7o.jpg" },
-        { label: "汪", url: "https://files.catbox.moe/iwmiww.jpg" },
-        { label: "投降", url: "https://files.catbox.moe/f4ogyw.png" }
-    ];
+        updateContextInfo();
+        
+        // ... (保留原来的 layout 注入代码) ...
+        const layout = `...`; // 这里省略，保持原样
+        if ($('#ow-phone-container').length === 0) {
+            $('body').append(layout);
+            // renderEmojiPanel(); // <--- 删除这行，因为我们移到了 getJSON 回调里
+            bindEvents();
+        }
+        
+        // ... (保留 observer 和其他代码) ...
 
     const State = {
         contacts: {}, 
@@ -351,8 +319,6 @@
         updateMainBadge();
     }
 
-    // ... (UI 渲染函数：bindEvents, togglePhone, renderContactList, renderChat, renderEmojiPanel, updateMainBadge, getRandomColor) ...
-    // 请务必完整复制之前的 UI 函数部分
     function bindEvents() {
         $('#ow-phone-toggle').click(() => togglePhone(true));
         $('#ow-close-btn').click(() => togglePhone(false));
@@ -452,36 +418,77 @@
         });
     }
 
+   // === 修改点 3: 性能优化的渲染函数 ===
     function renderChat(name) {
         State.currentChat = name;
         if(State.contacts[name]) State.contacts[name].unread = 0;
         updateMainBadge();
         saveData();
+        
+        // UI 状态更新
         $('#ow-header-title').text(name);
         $('#ow-back-btn').show(); 
         $('#ow-add-btn').hide();  
         $('#ow-chat-footer').show();
         $('#ow-emoji-panel').hide();
+
         const body = $('#ow-phone-body');
-        body.empty();
-        const view = $('<div class="ow-chat-view"></div>');
+        
+        // 查找是否已经存在当前聊天的视图
+        let view = body.find(`.ow-chat-view[data-chat-id="${name}"]`);
+        
         const msgs = State.contacts[name]?.messages || [];
-        msgs.forEach((msg, index) => {
-            const isMe = msg.type === 'sent';
-            const div = $(`
-                <div class="ow-msg-wrapper" style="display:flex; flex-direction:column; align-items:${isMe?'flex-end':'flex-start'};">
-                    <div class="ow-msg ${isMe ? 'ow-msg-right' : 'ow-msg-left'}">${msg.content}</div>
-                    <div style="font-size:10px; color:#888; margin-top:2px;">${msg.displayTime || ''}</div>
-                </div>
-            `);
-            div.find('.ow-msg').on('contextmenu', (e) => {
-                e.preventDefault();
-                if(confirm("删除这条消息？")) deleteMessage(name, index);
+        
+        // 如果视图不存在，或者当前视图属于另一个人，则完全重绘
+        if (view.length === 0) {
+            body.empty();
+            view = $(`<div class="ow-chat-view" data-chat-id="${name}"></div>`);
+            body.append(view);
+            
+            // 首次渲染：添加所有消息
+            msgs.forEach((msg, index) => {
+                appendMsgToView(view, msg, name, index);
             });
-            view.append(div);
+            // 滚动到底部
+            body[0].scrollTop = body[0].scrollHeight;
+        } else {
+            // 增量渲染：只添加新消息
+            const currentCount = view.children().length;
+            const targetCount = msgs.length;
+
+            if (targetCount > currentCount) {
+                // 有新消息 -> 追加
+                for (let i = currentCount; i < targetCount; i++) {
+                    appendMsgToView(view, msgs[i], name, i);
+                }
+                // 平滑滚动到底部
+                body.animate({ scrollTop: body[0].scrollHeight }, 300);
+            } else if (targetCount < currentCount) {
+                // 消息减少了（删除了消息）-> 简单起见，强制重绘
+                body.empty();
+                renderChat(name); 
+                return;
+            }
+        }
+    }
+
+    // 辅助函数：生成单条消息 DOM
+    function appendMsgToView(viewContainer, msg, contactName, index) {
+        const isMe = msg.type === 'sent';
+        const div = $(`
+            <div class="ow-msg-wrapper" style="display:flex; flex-direction:column; align-items:${isMe?'flex-end':'flex-start'};">
+                <div class="ow-msg ${isMe ? 'ow-msg-right' : 'ow-msg-left'}">${msg.content}</div>
+                <div style="font-size:10px; color:#888; margin-top:2px;">${msg.displayTime || ''}</div>
+            </div>
+        `);
+        
+        // 绑定右键删除事件
+        div.find('.ow-msg').on('contextmenu', (e) => {
+            e.preventDefault();
+            if(confirm("删除这条消息？")) deleteMessage(contactName, index);
         });
-        body.append(view);
-        body[0].scrollTop = body[0].scrollHeight;
+        
+        viewContainer.append(div);
     }
 
     function renderEmojiPanel() {
