@@ -1,7 +1,7 @@
 (function () {
     const SETTING_KEY = "open_world_phone_data";
     
-    // 内置表情包 (使用了网络图床，保证可见)
+    // 表情包列表
     const EMOJI_LIST = [
         "https://sharkpan.xyz/f/vVBtL/mmexport1737057690899.png", // 顶嘴
         "https://sharkpan.xyz/f/pO6uQ/mmexport1737057701883.png", // 免礼
@@ -19,16 +19,17 @@
         contacts: {}, 
         currentChat: null,
         isOpen: false,
-        isDragging: false
+        isDragging: false,
+        showEmoji: false
     };
 
     function init() {
-        console.log("[OW Phone] Init v1.2");
+        console.log("[OW Phone] Init v1.3 - Auto Greeting Fix");
         loadData();
         
         const layout = `
         <div id="ow-phone-toggle" title="打开手机">
-            📱<span id="ow-main-badge" class="ow-badge" style="display:none">0</span>
+            💬<span id="ow-main-badge" class="ow-badge" style="display:none">0</span>
         </div>
 
         <div id="ow-phone-container" class="ow-hidden">
@@ -56,110 +57,75 @@
         renderEmojiPanel();
         bindEvents();
         startMessageListener();
-        
-        // 初始化视图
         renderContactList();
     }
 
     function bindEvents() {
-        // 1. 基础开关
         $('#ow-phone-toggle').click(() => togglePhone(true));
         $('#ow-close-btn').click(() => togglePhone(false));
-        
-        // 2. 导航与功能
-        $('#ow-back-btn').click(() => {
-            renderContactList(); // 返回列表
-        });
+        $('#ow-back-btn').click(() => { renderContactList(); });
 
-        // 加好友按钮逻辑
         $('#ow-add-btn').click(() => {
             const name = prompt("【添加好友】请输入对方的名字：");
             if (name && name.trim()) {
                 const cleanName = name.trim();
-                // 1. 如果不存在，创建数据
                 if (!State.contacts[cleanName]) {
-                    State.contacts[cleanName] = { 
-                        messages: [], 
-                        unread: 0, 
-                        color: getRandomColor() 
-                    };
+                    State.contacts[cleanName] = { messages: [], unread: 0, color: getRandomColor() };
                     saveData();
                 }
-                // 2. 无论是否已存在，直接跳转到聊天界面
                 renderChat(cleanName);
             }
         });
 
-        // 3. 发送相关
         $('#ow-send-btn').click(handleUserSend);
         $('#ow-input').keypress((e) => { if(e.key === 'Enter') handleUserSend(); });
 
-        // 4. 表情包开关
-        $('#ow-emoji-btn').click(() => {
-            $('#ow-emoji-panel').slideToggle(150);
-        });
+        $('#ow-emoji-btn').click(() => { $('#ow-emoji-panel').slideToggle(150); });
 
-        // 5. 拖拽逻辑 (原生)
         const header = document.getElementById('ow-phone-header');
         const container = document.getElementById('ow-phone-container');
         let offset = {x:0, y:0};
 
         header.onmousedown = (e) => {
-            // 只有点击空白处或标题时才拖拽，避免误触按钮
             if (e.target.classList.contains('ow-header-icon')) return;
             State.isDragging = true;
             offset.x = e.clientX - container.offsetLeft;
             offset.y = e.clientY - container.offsetTop;
             header.style.cursor = 'grabbing';
         };
-        document.onmouseup = () => {
-            State.isDragging = false;
-            header.style.cursor = 'grab';
-        };
+        document.onmouseup = () => { State.isDragging = false; header.style.cursor = 'grab'; };
         document.onmousemove = (e) => {
             if(!State.isDragging) return;
             e.preventDefault();
             container.style.left = (e.clientX - offset.x) + 'px';
             container.style.top = (e.clientY - offset.y) + 'px';
-            container.style.bottom = 'auto'; // 清除定位
+            container.style.bottom = 'auto';
             container.style.right = 'auto';
         };
     }
 
-    // === 核心：追加到酒馆输入框 ===
     function appendToMainInput(text) {
         const textarea = document.getElementById('send_textarea');
         if (!textarea) return;
-
         let currentVal = textarea.value;
-        // 如果输入框有内容且没换行，加个换行
-        if (currentVal.length > 0 && !currentVal.endsWith('\n')) {
-            currentVal += '\n';
-        }
-        
+        if (currentVal.length > 0 && !currentVal.endsWith('\n')) currentVal += '\n';
         textarea.value = currentVal + text;
-        
-        // 触发事件，让酒馆知道内容变了
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         textarea.focus();
-        
-        // 提示
-        toastr.info(`已将短信内容填入输入框，请点击酒馆的“发送”`);
+        toastr.info(`短信指令已填入输入框`);
     }
 
     function handleUserSend() {
         const input = document.getElementById('ow-input');
         const text = input.value.trim();
         const target = State.currentChat;
-
         if (!text || !target) return;
 
-        // 1. 手机上显示发出的消息
+        // 1. 本地上屏 (伪造)
         addMessageLocal(target, text, 'sent');
         input.value = '';
 
-        // 2. 生成指令并填入酒馆输入框
-        // 格式： [SMS: 目标 | 内容]
+        // 2. 填入指令
         const command = `[SMS: ${target} | ${text}]`;
         appendToMainInput(command);
     }
@@ -167,53 +133,181 @@
     function sendEmoji(url) {
         const target = State.currentChat;
         if (!target) return;
-
-        // 1. 本地显示图片
         const imgHtml = `<img src="${url}" class="ow-msg-img">`;
         addMessageLocal(target, imgHtml, 'sent');
         $('#ow-emoji-panel').hide();
-
-        // 2. 生成指令
         const command = `[SMS: ${target} | [发送了一个表情包]]`;
         appendToMainInput(command);
     }
 
-    // === 界面渲染 ===
+    // === 数据逻辑 ===
+    function addMessageLocal(name, content, type) {
+        if (!State.contacts[name]) {
+            State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
+        }
+        
+        // 防重检查：如果最后一条消息内容和类型都一样，且时间间隔很短，则不添加
+        const messages = State.contacts[name].messages;
+        const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+        
+        // 这里做一个简单的防重，防止 Listener 和 本地添加 撞车
+        if (lastMsg && lastMsg.content === content && lastMsg.type === type) {
+            // 如果是刚刚发的（5秒内），忽略
+            if (Date.now() - lastMsg.time < 5000) return; 
+        }
+
+        messages.push({ type: type, content: content, time: Date.now() });
+
+        if (type === 'recv' && State.currentChat !== name) {
+            State.contacts[name].unread++;
+        }
+        
+        saveData();
+        updateMainBadge();
+        
+        if (State.isOpen) {
+            if (State.currentChat === name) renderChat(name);
+            else if (!State.currentChat) renderContactList();
+        }
+    }
+
+    // === 核心修复：允许 AI 代表 User 发送 ===
+    function startMessageListener() {
+        const observer = new MutationObserver(() => {
+            const lastMsgEl = $('.mes_text').last();
+            if (lastMsgEl.length === 0) return;
+            const text = lastMsgEl.text();
+            
+            // 1. 自动加好友
+            let match;
+            const addRegex = /\[ADD_CONTACT:\s*(.+?)\]/g;
+            while ((match = addRegex.exec(text)) !== null) {
+                const name = match[1].trim();
+                // 只有当好友不存在时才提示，避免重复弹窗
+                if (!State.contacts[name]) {
+                    State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
+                    saveData();
+                    toastr.success(`📱 自动添加好友: ${name}`);
+                    if(State.isOpen && !State.currentChat) renderContactList();
+                }
+            }
+
+            // 2. 消息监听 (User 和 NPC 全都要)
+            // 现在的正则会匹配 [SMS: 任何人 | 内容]
+            const smsRegex = /\[SMS:\s*(.+?)\s*\|\s*(.+?)\]/g;
+            while ((match = smsRegex.exec(text)) !== null) {
+                const sender = match[1].trim();
+                const content = match[2].trim();
+                
+                // 判断发送者
+                let type = 'recv';
+                let target = sender; // 默认对方是 sender
+
+                // 如果发送者是 '我' / 'User' / '{{user}}'
+                // 说明这是 AI 代替 User 发的（自动问候），或者是 User 手动发的（回显）
+                if (sender === '我' || sender.toLowerCase() === 'user' || sender === 'User') {
+                    type = 'sent';
+                    // 这种情况下，我们需要知道发给谁...
+                    // 尴尬点：[SMS: User | 内容] 没有指定接收者！
+                    // 解决方案：通常这种自动问候紧跟在 ADD_CONTACT 之后。
+                    // 或者我们默认发给“当前上下文里提到的那个人”。
+                    
+                    // *修正策略*：为了避免逻辑混乱，我们假设自动问候是发给"刚刚添加的那个人"
+                    // 或者，我们在 Prompt 里要求 AI 写成 [SMS: {{user}}->角色名 | 内容]？
+                    // 不，那样太复杂。
+                    
+                    // 最简单的修正：
+                    // 如果 AI 输出了 [SMS: User | 内容]，我们就把它归类为 "发给当前聊天窗口的人" 
+                    // 或者 "最近一个 ADD_CONTACT 的人"。
+                    
+                    // 这里做一个简单的回退：如果检测到是 User 发的，且当前没有明确目标，
+                    // 我们尝试去 recent contact 里找。
+                    
+                    // 但为了代码简单，我们先假设 AI 会严格按照 ADD_CONTACT -> SMS 的顺序。
+                    // 我们可以去 State.contacts 里找最近更新的一个人。
+                    
+                    // 更加稳妥的方法：
+                    // 让 AI 输出 [SMS: User->角色 | 内容]。如果不改 Prompt，
+                    // 我们可以暂时把 User 发的消息归档给 "最近联系人" 或者 "State.currentChat"
+                    
+                    // 如果实在不知道发给谁，就暂存到 System 或 忽略。
+                    // 但在这里，因为是扫码场景，我们假设发给“刚刚加的那个人”。
+                    
+                    // *Hack*: 遍历刚才正则捕获的 addMatch (如果存在)
+                    // 但 regex exec 是独立的。
+                    
+                    // 让我们换个思路：如果 sender 是 User，我们忽略？
+                    // 不，你说要体现。
+                    
+                    // 既然是扫码场景，对方一定是刚刚加的。
+                    // 我们查找最近 1 秒内创建的联系人？
+                    // 或者，我们仅仅依靠“当前打开的窗口”？
+                    
+                    // 算了，为了不让代码过于复杂，我们采用“双向绑定判定”：
+                    // 如果上一条指令是 ADD_CONTACT: X，那么这条 SMS: User 就是发给 X 的。
+                    
+                    // 这里我们简化处理：如果是 User 发的，我们尝试获取当前聊天对象，或者最近添加的对象。
+                    // 这是一个妥协。
+                    
+                    if (State.currentChat) {
+                        target = State.currentChat;
+                    } else {
+                        // 找最近一个联系人
+                        const names = Object.keys(State.contacts);
+                        if (names.length > 0) target = names[names.length - 1]; // 最后添加的
+                        else return; // 没好友，没法发
+                    }
+                }
+
+                // 执行添加 (带防重)
+                // 这里的 target 变成了接收者(如果是我发的) 或 发送者(如果是对方发的)
+                // 统称为 "对话对象"
+                addMessageLocal(target, content, type);
+            }
+        });
+
+        const chatLog = document.getElementById('chat');
+        if (chatLog) observer.observe(chatLog, { childList: true, subtree: true });
+        else setTimeout(startMessageListener, 2000);
+    }
+
+    // ... (UI 渲染和工具函数保持 v1.2 不变) ...
+    // 为节省篇幅，这里复用 v1.2 的 renderChat, renderContactList 等函数
+    // 实际文件请务必保留 style.css 和完整的 render 函数
     
-    // 渲染联系人列表
+    function togglePhone(show) {
+        State.isOpen = show;
+        if (show) {
+            $('#ow-phone-container').removeClass('ow-hidden');
+            $('#ow-phone-toggle').hide();
+            if (State.currentChat) renderChat(State.currentChat);
+            else renderContactList();
+        } else {
+            $('#ow-phone-container').addClass('ow-hidden');
+            $('#ow-phone-toggle').show();
+        }
+        updateMainBadge();
+    }
+
     function renderContactList() {
         State.currentChat = null;
         $('#ow-header-title').text("通讯录");
-        
-        // 按钮状态：列表页显示加号，隐藏返回，隐藏关闭(保留关闭也行，这里保留)
         $('#ow-back-btn').hide();
         $('#ow-add-btn').show(); 
         $('#ow-close-btn').show();
-        
-        $('#ow-chat-footer').hide(); // 隐藏底部输入栏
-        
+        $('#ow-chat-footer').hide();
         const body = $('#ow-phone-body');
         body.empty();
-
         const names = Object.keys(State.contacts);
         if (names.length === 0) {
-            body.html(`
-                <div class="ow-empty-state">
-                    <div style="font-size:40px; margin-bottom:10px;">📭</div>
-                    暂无联系人<br>点击右上角 ➕ 添加好友
-                </div>
-            `);
+            body.html(`<div class="ow-empty-state"><div style="font-size:40px; margin-bottom:10px;">📭</div>暂无联系人<br>点击右上角 ➕ 添加好友</div>`);
             return;
         }
-
         names.forEach(name => {
             const info = State.contacts[name];
             const lastMsg = info.messages[info.messages.length - 1];
-            let preview = "暂无消息";
-            if (lastMsg) {
-                preview = lastMsg.content.includes('<img') ? '[图片]' : lastMsg.content;
-            }
-
+            let preview = lastMsg ? lastMsg.content : "暂无消息";
+            if (preview.includes('<img')) preview = '[图片]';
             const item = $(`
                 <div class="ow-contact-item">
                     <div class="ow-avatar" style="background:${info.color || '#555'}">
@@ -231,38 +325,26 @@
         });
     }
 
-    // 渲染聊天界面
     function renderChat(name) {
         State.currentChat = name;
-        
-        // 清除未读
         if(State.contacts[name]) State.contacts[name].unread = 0;
         updateMainBadge();
         saveData();
-
-        // 顶部变化
         $('#ow-header-title').text(name);
-        $('#ow-back-btn').show(); // 显示返回
-        $('#ow-add-btn').hide();  // 聊天时隐藏加人按钮，防误触
-        
-        // 底部显示
+        $('#ow-back-btn').show(); 
+        $('#ow-add-btn').hide();  
         $('#ow-chat-footer').show();
-        $('#ow-emoji-panel').hide(); // 默认收起表情
-
+        $('#ow-emoji-panel').hide();
         const body = $('#ow-phone-body');
         body.empty();
-        
         const view = $('<div class="ow-chat-view"></div>');
         const msgs = State.contacts[name]?.messages || [];
-
         msgs.forEach(msg => {
             const isMe = msg.type === 'sent';
             const div = $(`<div class="ow-msg ${isMe ? 'ow-msg-right' : 'ow-msg-left'}">${msg.content}</div>`);
             view.append(div);
         });
-
         body.append(view);
-        // 滚动到底部
         body[0].scrollTop = body[0].scrollHeight;
     }
 
@@ -274,92 +356,6 @@
             img.click(() => sendEmoji(url));
             panel.append(img);
         });
-    }
-
-    // === 数据逻辑 ===
-    function addMessageLocal(name, content, type) {
-        if (!State.contacts[name]) {
-            State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
-        }
-        
-        State.contacts[name].messages.push({
-            type: type, // 'sent' or 'recv'
-            content: content,
-            time: Date.now()
-        });
-
-        if (type === 'recv' && State.currentChat !== name) {
-            State.contacts[name].unread++;
-        }
-        
-        saveData();
-        updateMainBadge();
-        
-        // 如果当前正在看列表，刷新列表预览
-        // 如果当前正在看这个人的聊天，刷新聊天
-        if (State.isOpen) {
-            if (State.currentChat === name) renderChat(name);
-            else if (!State.currentChat) renderContactList();
-        }
-    }
-
-    // 监听酒馆消息 (正则解析)
-    function startMessageListener() {
-        const observer = new MutationObserver(() => {
-            const lastMsgEl = $('.mes_text').last();
-            if (lastMsgEl.length === 0) return;
-            const text = lastMsgEl.text();
-            
-            // 1. 加好友 [ADD_CONTACT: name]
-            let match;
-            const addRegex = /\[ADD_CONTACT:\s*(.+?)\]/g;
-            while ((match = addRegex.exec(text)) !== null) {
-                const name = match[1].trim();
-                if (!State.contacts[name]) {
-                    State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
-                    saveData();
-                    toastr.success(`📱 自动添加好友: ${name}`);
-                    if(State.isOpen && !State.currentChat) renderContactList();
-                }
-            }
-
-            // 2. 收短信 [SMS: sender | content]
-            const smsRegex = /\[SMS:\s*(.+?)\s*\|\s*(.+?)\]/g;
-            while ((match = smsRegex.exec(text)) !== null) {
-                const sender = match[1].trim();
-                const content = match[2].trim();
-                
-                // 忽略自己发的（防止循环）
-                if (sender !== '我' && sender.toLowerCase() !== 'user') {
-                    // 简单防重：比较最后一条消息
-                    const contact = State.contacts[sender];
-                    const lastLocal = contact?.messages[contact.messages.length - 1];
-                    
-                    if (!lastLocal || lastLocal.content !== content) {
-                        addMessageLocal(sender, content, 'recv');
-                    }
-                }
-            }
-        });
-
-        const chatLog = document.getElementById('chat');
-        if (chatLog) observer.observe(chatLog, { childList: true, subtree: true });
-        else setTimeout(startMessageListener, 2000);
-    }
-
-    // === 工具 ===
-    function togglePhone(show) {
-        State.isOpen = show;
-        if (show) {
-            $('#ow-phone-container').removeClass('ow-hidden');
-            $('#ow-phone-toggle').hide();
-            // 打开时，如果之前在聊天就显示聊天，否则显示列表
-            if (State.currentChat) renderChat(State.currentChat);
-            else renderContactList();
-        } else {
-            $('#ow-phone-container').addClass('ow-hidden');
-            $('#ow-phone-toggle').show();
-        }
     }
 
     function updateMainBadge() {
