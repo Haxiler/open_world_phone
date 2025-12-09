@@ -4,9 +4,68 @@
     
     // 表情包字典 (保留你喜欢的)
     const EMOJI_DB = [
+        // --- 基础互动 ---
         { label: "打招呼", url: "https://sharkpan.xyz/f/LgwT7/AC229A80203166B292155ADA057DE423_0.gif" },
         { label: "开心", url: "https://sharkpan.xyz/f/aVwtY/0CBEE9105C7A98E0E6162A79CCD09EFA_0.gif" },
-        // ... (请把你的50+个表情包粘贴在这里) ...
+        { label: "爱心", url: "https://sharkpan.xyz/f/53nhj/345FFC998474F46C1A40B1567335DA03_0.gif" },
+        { label: "给你爱", url: "https://files.catbox.moe/sqa7c9.jpg" },
+        { label: "好的", url: "https://files.catbox.moe/71kn5e.png" },
+        { label: "晚安", url: "https://files.catbox.moe/duzx7n.png" },
+
+        // --- 卖萌/撒娇 ---
+        { label: "乖巧", url: "https://files.catbox.moe/4dnzcq.png" },
+        { label: "害羞", url: "https://files.catbox.moe/ssgpgy.jpg" },
+        { label: "飞奔", url: "https://sharkpan.xyz/f/kDOi6/0A231BF0BFAB3C2B243F9749B64F7444_0.gif" },
+        { label: "蹭蹭", url: "https://files.catbox.moe/9p0x2t.png" },
+        { label: "期待", url: "https://files.catbox.moe/i0ov5h.png" },
+        { label: "送花", url: "https://files.catbox.moe/s1t2kd.jpg" },
+        { label: "可怜", url: "https://sharkpan.xyz/f/XgmcW/817B66DAB2414E1FC8D717570A602193_0.gif" },
+        { label: "流口水", url: "https://sharkpan.xyz/f/j36f6/3010464DF8BD77B4A99AB23730F2EE57_0.gif" },
+
+        // --- 负面情绪/拒绝 ---
+        { label: "哭哭", url: "https://files.catbox.moe/rw1cfk.png" },
+        { label: "大哭", url: "https://files.catbox.moe/dbyrdf.png" },
+        { label: "委屈", url: "https://sharkpan.xyz/f/gVySw/D90D0B53802301FCDB1F0718DEB08C79_0.gif" },
+        { label: "生气", url: "https://files.catbox.moe/si6f0k.png" },
+        { label: "不爽", url: "https://files.catbox.moe/amelbv.png" },
+        { label: "嫌弃", url: "https://files.catbox.moe/t2e0nt.png" },
+        { label: "无语", url: "https://files.catbox.moe/wgkwjh.png" },
+        { label: "拒绝", url: "https://files.catbox.moe/bos6mn.jpg" },
+        { label: "心碎", url: "https://files.catbox.moe/ueqlfe.jpg" },
+        { label: "压力", url: "https://files.catbox.moe/ufz3ek.jpg" },
+
+        // --- 攻击性/怼人 ---
+        { label: "顶嘴", url: "https://sharkpan.xyz/f/vVBtL/mmexport1737057690899.png" },
+        { label: "揍你", url: "https://sharkpan.xyz/f/oJ1i4/mmexport1737057862640.gif" },
+        { label: "撞飞", url: "https://sharkpan.xyz/f/zMZu5/mmexport1737057848709.gif" },
+        { label: "锁喉", url: "https://files.catbox.moe/mi8tk3.jpg" },
+        { label: "滚", url: "https://sharkpan.xyz/f/1vAc2/mmexport1737057678306.png" },
+        { label: "比中指", url: "https://files.catbox.moe/umpgjb.jpg" },
+        { label: "吃屎", url: "https://files.catbox.moe/r26gox.png" },
+        { label: "你是坏蛋", url: "https://sharkpan.xyz/f/8r2Sj/mmexport1737057726579.png" },
+        { label: "我恨你", url: "https://files.catbox.moe/r6g32h.png" },
+
+        // --- 搞笑/发疯/阴阳怪气 ---
+        { label: "疑惑", url: "https://files.catbox.moe/gofdox.jpg" },
+        { label: "震惊", url: "https://files.catbox.moe/q7683x.png" },
+        { label: "尴尬", url: "https://files.catbox.moe/8eaawd.png" },
+        { label: "偷看", url: "https://files.catbox.moe/72wkme.png" },
+        { label: "发疯", url: "https://files.catbox.moe/8cqr43.jpg" },
+        { label: "已老实", url: "https://files.catbox.moe/6eyzlg.png" },
+        { label: "喝茶", url: "https://files.catbox.moe/1xvrb8.jpg" }, // 大人请用茶
+        { label: "免礼", url: "https://sharkpan.xyz/f/pO6uQ/mmexport1737057701883.png" },
+        { label: "满意", url: "https://sharkpan.xyz/f/e8KUw/mmexport1737057664689.png" },
+        { label: "好困", url: "https://files.catbox.moe/7pncr1.jpg" },
+        { label: "躺平", url: "https://files.catbox.moe/cq6ipd.png" },
+        { label: "升天", url: "https://files.catbox.moe/o8td90.png" },
+        { label: "大脑短路", url: "https://files.catbox.moe/d41e2q.png" },
+        { label: "吃瓜", url: "https://files.catbox.moe/428w1c.png" }, // 围观
+        { label: "吐魂", url: "https://files.catbox.moe/7yejey.png" },
+
+        // --- 特殊类 ---
+        { label: "我是狗", url: "https://files.catbox.moe/1bki7o.jpg" },
+        { label: "汪", url: "https://files.catbox.moe/iwmiww.jpg" },
+        { label: "投降", url: "https://files.catbox.moe/f4ogyw.png" }
     ];
 
     const State = {
