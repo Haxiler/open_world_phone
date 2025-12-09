@@ -1,6 +1,7 @@
 (function () {
     const STORAGE_PREFIX = "ow_phone_v3_";
     
+    // 优化1：表情包变量改为空数组，改为异步加载
     let EMOJI_DB = []; 
 
     const State = {
@@ -13,44 +14,24 @@
     };
 
     function init() {
-        console.log("[OW Phone] Init v3.3 - Optimized");
+        console.log("[OW Phone] Init v3.3 - Optimized Version");
         
+        // 优化1：异步加载表情包 json
+        // 注意：确保 emojis.json 文件在插件目录下，且 manifest.json 的 name 为 open_world_phone
         $.getJSON('/extensions/open_world_phone/emojis.json', function(data) {
             console.log("[OW Phone] 表情包加载成功");
             EMOJI_DB = data;
-            renderEmojiPanel(); // 加载完再渲染面板
+            // 如果手机面板正开着，刷新一下表情面板
+            if ($('#ow-emoji-panel').is(':visible')) {
+                renderEmojiPanel();
+            }
         }).fail(function() {
-            console.error("[OW Phone] 表情包加载失败，请检查文件路径");
+            console.error("[OW Phone] 表情包加载失败，请检查 /extensions/open_world_phone/emojis.json 路径是否正确");
         });
 
         updateContextInfo();
         
-        // ... (保留原来的 layout 注入代码) ...
-        const layout = `...`; // 这里省略，保持原样
-        if ($('#ow-phone-container').length === 0) {
-            $('body').append(layout);
-            // renderEmojiPanel(); // <--- 删除这行，因为我们移到了 getJSON 回调里
-            bindEvents();
-        }
-        
-        // ... (保留 observer 和其他代码) ...
-
-    const State = {
-        contacts: {}, 
-        currentChat: null,
-        isOpen: false,
-        isDragging: false,
-        userName: "User",
-        currentChatFileId: null, // 核心：当前聊天文件的唯一ID
-    };
-
-    function init() {
-        console.log("[OW Phone] Init v3.3 - Chat File Binding & System Protocol");
-        
-        // 1. 初始化绑定
-        updateContextInfo();
-        
-        // 2. 注入 UI
+        // 注入 UI
         const layout = `
         <div id="ow-phone-toggle" title="打开手机">
             💬<span id="ow-main-badge" class="ow-badge" style="display:none">0</span>
@@ -75,19 +56,16 @@
         `;
         if ($('#ow-phone-container').length === 0) {
             $('body').append(layout);
-            renderEmojiPanel();
+            // renderEmojiPanel(); // 这里先不渲染，等 JSON 加载完
             bindEvents();
         }
 
-        // 3. 启动监听 (专门抓取 .ow-raw-data)
+        // 启动监听 (专门抓取 .ow-raw-data)
         const observer = new MutationObserver((mutations) => {
-            // 每次变动都检查一下是不是换了聊天文件
             updateContextInfo();
-            
             mutations.forEach(mutation => {
                 if (mutation.addedNodes.length) {
                     $(mutation.addedNodes).each(function() {
-                        // 递归查找胶囊
                         const capsule = $(this).find('.ow-raw-data');
                         if (capsule.length > 0) {
                             capsule.each(function() {
@@ -96,8 +74,6 @@
                                 parseCommand(rawMsg);
                             });
                         }
-                        
-                        // 自身就是胶囊
                         if ($(this).hasClass('ow-raw-data')) {
                             const rawMsg = $(this).attr('data-raw');
                             console.log("[OW Phone] 捕捉到胶囊(自身):", rawMsg);
@@ -114,38 +90,27 @@
         renderContactList();
     }
 
-    // === 核心 1：绑定聊天文件 (Chat File Binding) ===
+    // === 核心功能函数 ===
+
     function updateContextInfo() {
         if (!window.SillyTavern || !window.SillyTavern.getContext) return;
-        
         const context = window.SillyTavern.getContext();
-        
-        // 获取用户名
         if (context.name) State.userName = context.name;
         else if (context.user_name) State.userName = context.user_name;
 
-        // 获取聊天文件ID (chatId 是文件名的哈希或文件名本身，这才是真正的“存档ID”)
-        // 如果 chatId 不存在，降级使用 characterId (针对旧版酒馆)
         const newFileId = context.chatId || context.characterId;
-
         if (newFileId && newFileId !== State.currentChatFileId) {
             console.log(`[OW Phone] 切换存档: ${State.currentChatFileId} -> ${newFileId}`);
             State.currentChatFileId = newFileId;
-            // 切换存档后，立即重载数据
             State.contacts = {}; 
             loadData(); 
             renderContactList();
         }
     }
 
-    // === 核心 2：解析器 (支持 System 指令) ===
     function parseCommand(text) {
         if (!text) return;
-        
-        // 解码 HTML 实体 (防止 &lt; 导致正则失败)
         const decodedText = text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-
-        // 正则匹配: <msg>发送|接收|内容|时间</msg>
         const msgRegex = /<msg>(.+?)\|(.+?)\|(.+?)\|(.+?)<\/msg>/g;
         let match;
         
@@ -155,40 +120,29 @@
             let content = match[3].trim();
             let timeStr = match[4].trim();
 
-            console.log(`[OW Phone] 解析成功: ${sender} -> ${receiver} : ${content}`);
-
-            // === A. 处理加好友 (System 指令) ===
-            // 格式: <msg>System|User|ADD:刻晴|时间</msg>
             if (sender.toLowerCase() === 'system' && content.startsWith('ADD:')) {
                 const newContactName = content.replace('ADD:', '').trim();
                 if (!State.contacts[newContactName]) {
                     State.contacts[newContactName] = { messages: [], unread: 0, color: getRandomColor() };
                     saveData();
                     toastr.success(`📱 自动添加好友: ${newContactName}`);
-                    // 如果手机开着，刷新列表
                     if(State.isOpen && !State.currentChat) renderContactList();
                 }
-                continue; // 处理完系统指令，跳过后续
+                continue;
             }
 
-            // === B. 处理普通消息 ===
             const isSenderUser = checkIsUser(sender);
             const isReceiverUser = checkIsUser(receiver);
-
             content = parseEmojiContent(content);
 
-            // 别人发给我 (存为 recv)
             if (!isSenderUser && isReceiverUser) {
-                // 如果是陌生人，也自动建档
                 if (!State.contacts[sender]) {
                     State.contacts[sender] = { messages: [], unread: 0, color: getRandomColor() };
                     saveData();
                 }
                 addMessageLocal(sender, content, 'recv', timeStr);
             }
-            // 我发给别人 (存为 sent)
             else if (isSenderUser && !isReceiverUser) {
-                // 确保对方在通讯录里
                 if (!State.contacts[receiver]) {
                     State.contacts[receiver] = { messages: [], unread: 0, color: getRandomColor() };
                     saveData();
@@ -203,7 +157,6 @@
     }
 
     function parseEmojiContent(text) {
-        // 支持 [bqb-xxx] 和 [表情: xxx] 两种格式
         const bqbMatch = text.match(/\[(?:bqb-|表情:)\s*(.+?)\]/);
         if (bqbMatch) {
             const label = bqbMatch[1].trim();
@@ -214,7 +167,6 @@
         return text;
     }
 
-    // === 发送逻辑 ===
     function handleUserSend() {
         const input = document.getElementById('ow-input');
         const text = input.value.trim();
@@ -226,8 +178,6 @@
 
         addMessageLocal(target, text, 'sent', timeStr);
         input.value = '';
-
-        // 构造指令
         const command = `\n<msg>{{user}}|${target}|${text}|${timeStr}</msg>`;
         appendToMainInput(command);
     }
@@ -254,7 +204,6 @@
         textarea.focus();
     }
 
-    // === 存储与数据 ===
     function addMessageLocal(name, content, type, timeStr) {
         if (!State.contacts[name]) {
             State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
@@ -263,7 +212,6 @@
         const msgs = State.contacts[name].messages;
         const lastMsg = msgs[msgs.length - 1];
 
-        // 3秒防抖
         if (lastMsg && lastMsg.content === content && lastMsg.type === type) {
             if (Date.now() - (lastMsg.realTime || 0) < 3000) return;
         }
@@ -297,7 +245,6 @@
     }
 
     function saveData() { 
-        // 使用 ChatFileId 作为 Key，实现不同存档隔离
         if (State.currentChatFileId) {
             localStorage.setItem(STORAGE_PREFIX + State.currentChatFileId, JSON.stringify(State.contacts));
         }
@@ -418,14 +365,13 @@
         });
     }
 
-   // === 修改点 3: 性能优化的渲染函数 ===
+    // 优化2：增量渲染聊天记录
     function renderChat(name) {
         State.currentChat = name;
         if(State.contacts[name]) State.contacts[name].unread = 0;
         updateMainBadge();
         saveData();
         
-        // UI 状态更新
         $('#ow-header-title').text(name);
         $('#ow-back-btn').show(); 
         $('#ow-add-btn').hide();  
@@ -433,38 +379,27 @@
         $('#ow-emoji-panel').hide();
 
         const body = $('#ow-phone-body');
-        
-        // 查找是否已经存在当前聊天的视图
         let view = body.find(`.ow-chat-view[data-chat-id="${name}"]`);
-        
         const msgs = State.contacts[name]?.messages || [];
         
-        // 如果视图不存在，或者当前视图属于另一个人，则完全重绘
         if (view.length === 0) {
             body.empty();
             view = $(`<div class="ow-chat-view" data-chat-id="${name}"></div>`);
             body.append(view);
-            
-            // 首次渲染：添加所有消息
             msgs.forEach((msg, index) => {
                 appendMsgToView(view, msg, name, index);
             });
-            // 滚动到底部
             body[0].scrollTop = body[0].scrollHeight;
         } else {
-            // 增量渲染：只添加新消息
             const currentCount = view.children().length;
             const targetCount = msgs.length;
 
             if (targetCount > currentCount) {
-                // 有新消息 -> 追加
                 for (let i = currentCount; i < targetCount; i++) {
                     appendMsgToView(view, msgs[i], name, i);
                 }
-                // 平滑滚动到底部
                 body.animate({ scrollTop: body[0].scrollHeight }, 300);
             } else if (targetCount < currentCount) {
-                // 消息减少了（删除了消息）-> 简单起见，强制重绘
                 body.empty();
                 renderChat(name); 
                 return;
@@ -472,7 +407,6 @@
         }
     }
 
-    // 辅助函数：生成单条消息 DOM
     function appendMsgToView(viewContainer, msg, contactName, index) {
         const isMe = msg.type === 'sent';
         const div = $(`
@@ -481,19 +415,21 @@
                 <div style="font-size:10px; color:#888; margin-top:2px;">${msg.displayTime || ''}</div>
             </div>
         `);
-        
-        // 绑定右键删除事件
         div.find('.ow-msg').on('contextmenu', (e) => {
             e.preventDefault();
             if(confirm("删除这条消息？")) deleteMessage(contactName, index);
         });
-        
         viewContainer.append(div);
     }
 
     function renderEmojiPanel() {
         const panel = $('#ow-emoji-panel');
         panel.empty();
+        if (EMOJI_DB.length === 0) {
+            panel.html('<div style="color:#aaa; text-align:center; padding:20px;">加载中...</div>');
+            // 如果面板被打开但数据还没到，可以不做处理，等数据到了会自动刷新
+            return;
+        }
         EMOJI_DB.forEach(item => {
             const img = $(`<img src="${item.url}" class="ow-emoji-item" title="${item.label}">`);
             img.click(() => sendEmoji(item)); 
