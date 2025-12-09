@@ -1,421 +1,256 @@
-(function () {
-    const STORAGE_PREFIX = "ow_phone_v3_";
-    let EMOJI_DB = []; 
-    let lastProcessedContent = "";
-    
-    // --- 调试日志工具 ---
-    function debugLog(step, message, data = null) {
-        const time = new Date().toLocaleTimeString();
-        console.log(`%c[${time}] [OW调试-步骤${step}] ${message}`, "color: #ff00ff; font-weight: bold;", data || "");
-    }
+// 简单的状态管理
+const PHONE_STATE = {
+    contacts: {}, // 存储格式: { "角色名": [{sender: "角色名", content: "内容", type: "recv"}] }
+    currentChat: null,
+    isVisible: false,
+    unreadCount: 0
+};
 
-    const State = {
-        contacts: {}, 
-        currentChat: null,
-        isOpen: false,
-        isDragging: false,
-        userName: "User",
-        currentChatFileId: null,
-    };
-
-    // --- 辅助函数 (前置定义，防止 ReferenceError) ---
-    function updateMainBadge() {
-        let total = 0;
-        Object.values(State.contacts).forEach(c => total += (c.unread || 0));
-        const badge = $('#ow-main-badge');
-        if (total > 0) badge.text(total).show();
-        else badge.hide();
-    }
-
-    function getRandomColor() {
-        const colors = ['#f56a00', '#7265e6', '#ffbf00', '#00a2ae', '#1890ff', '#52c41a'];
-        return colors[Math.floor(Math.random() * colors.length)];
-    }
-
-    function saveData() { 
-        if (State.currentChatFileId) {
-            localStorage.setItem(STORAGE_PREFIX + State.currentChatFileId, JSON.stringify(State.contacts));
-        }
-    }
-
-    function checkIsUser(name) {
-        return (name === State.userName || name === '我' || name.toLowerCase() === 'user' || name === 'User' || name === '{{user}}');
-    }
-
-    // --- 主初始化流程 ---
-    function init() {
-        debugLog(0, "插件正在初始化...");
-        
-        // 尝试加载表情包
-        $.getJSON('/scripts/extensions/open_world_phone/emojis.json', function(data) {
-            debugLog(0.5, "表情包加载成功");
-            EMOJI_DB = data;
-            if ($('#ow-emoji-panel').is(':visible')) renderEmojiPanel();
-        }).fail(function() {
-            // 兼容性尝试：如果路径不对，尝试不带 scripts 前缀
-            $.getJSON('/extensions/open_world_phone/emojis.json', function(data) {
-                EMOJI_DB = data;
-            }).fail(function() {
-                 console.error("【严重】找不到表情包文件！请确认文件夹名为 open_world_phone");
-            });
-        });
-
-        updateContextInfo();
-        
-        const layout = `
-        <div id="ow-phone-toggle" title="打开手机">
-            💬<span id="ow-main-badge" class="ow-badge" style="display:none">0</span>
+// 1. 初始化界面
+function initPhoneUI() {
+    // 注入主HTML结构
+    const html = `
+    <div id="ow-phone-toggle" title="打开手机">
+        📱<span id="ow-main-badge" class="ow-badge" style="display:none">0</span>
+    </div>
+    <div id="ow-phone-container" style="display:none">
+        <div id="ow-phone-header">
+            <span id="ow-header-title">通讯录</span>
+            <span id="ow-close-btn" style="cursor:pointer">✖</span>
         </div>
-        <div id="ow-phone-container" class="ow-hidden">
-            <div id="ow-phone-header">
-                <div class="ow-header-icon" id="ow-back-btn" style="display:none">❮</div>
-                <div id="ow-header-title">通讯录</div>
-                <div class="ow-header-icon" id="ow-add-btn" title="添加好友">➕</div>
-                <div class="ow-header-icon" id="ow-close-btn" title="关闭">✖</div>
-            </div>
-            <div id="ow-phone-body"></div>
-            <div id="ow-chat-footer" style="display:none">
-                <div id="ow-input-row">
-                    <input id="ow-input" placeholder="输入信息..." autocomplete="off">
-                    <div class="ow-footer-icon" id="ow-emoji-btn">☺</div>
-                    <button id="ow-send-btn">发送</button>
-                </div>
-                <div id="ow-emoji-panel" style="display:none"></div>
-            </div>
+        <div id="ow-phone-body"></div>
+        <div id="ow-input-area" style="display:none">
+            <input id="ow-input" placeholder="发送讯息..." autocomplete="off">
+            <button id="ow-send-btn">发送</button>
         </div>
-        `;
-        if ($('#ow-phone-container').length === 0) {
-            $('body').append(layout);
-            bindEvents();
-        }
+    </div>
+    `;
+    $('body').append(html);
 
-        if (window.eventSource) {
-            debugLog(1, "监听器已挂载");
-            window.eventSource.on('generation_ended', function() {
-                debugLog(2, "AI生成完毕，正在检查新消息...");
-                setTimeout(checkLatestMessage, 500);
-            });
-            window.eventSource.on('chat_id_changed', updateContextInfo);
-        }
+    // 绑定事件：拖动
+    $("#ow-phone-container").draggable({ handle: "#ow-phone-header" });
+
+    // 绑定事件：显隐
+    $('#ow-phone-toggle').click(() => togglePhone(true));
+    $('#ow-close-btn').click(() => togglePhone(false));
+
+    // 绑定事件：返回通讯录
+    $('#ow-header-title').click(() => renderContactList());
+
+    // 绑定事件：发送消息
+    $('#ow-send-btn').click(handleUserSend);
+    $('#ow-input').keypress((e) => { if(e.which == 13) handleUserSend(); });
+
+    // 加载历史数据
+    loadPhoneData();
+}
+
+// 2. 核心逻辑：解析AI消息 (Hook)
+function parseIncomingMessage(text) {
+    // 匹配格式：[SMS: 角色名 | 内容]
+    const regex = /\[SMS:\s*(.+?)\s*\|\s*(.+?)\]/g;
+    let match;
+    let hasNewMsg = false;
+
+    while ((match = regex.exec(text)) !== null) {
+        const sender = match[1].trim();
+        const content = match[2].trim();
         
-        renderContactList();
+        // 自动添加好友 & 存储消息
+        addMessage(sender, content, 'recv');
+        hasNewMsg = true;
     }
 
-    // --- 核心消息读取逻辑 ---
-    function checkLatestMessage() {
-        if (!window.SillyTavern || !window.SillyTavern.getContext) return;
-        
-        const context = window.SillyTavern.getContext();
-        const chat = context.chat;
-        
-        if (chat && chat.length > 0) {
-            const lastMsg = chat[chat.length - 1];
-            const rawContent = lastMsg.mes; // 获取原始文本，无视正则隐藏
-            
-            if (rawContent === lastProcessedContent) return;
-            lastProcessedContent = rawContent;
-            
-            debugLog(3, "检查最新消息内容", rawContent);
-
-            if (rawContent.includes('<msg>')) {
-                debugLog(4, "发现手机指令，开始解析");
-                parseCommand(rawContent);
-            }
+    if (hasNewMsg) {
+        playSound();
+        updateBadge();
+        // 如果当前正好开着这个人的聊天框，刷新它
+        if (PHONE_STATE.isVisible && PHONE_STATE.currentChat) {
+            renderChatWindow(PHONE_STATE.currentChat);
+        } else if (PHONE_STATE.isVisible) {
+            renderContactList(); // 刷新通讯录看红点
         }
     }
+}
 
-    function parseCommand(text) {
-        if (!text) return;
-        const decodedText = text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-        const msgRegex = /<msg>(.+?)\|(.+?)\|(.+?)\|(.+?)<\/msg>/g;
-        let match;
-        
-        while ((match = msgRegex.exec(decodedText)) !== null) {
-            let sender = match[1].trim();
-            let receiver = match[2].trim();
-            let content = match[3].trim();
-            let timeStr = match[4].trim();
-
-            debugLog(5, `解析成功: ${sender} -> ${receiver}`);
-
-            if (sender.toLowerCase() === 'system' && content.startsWith('ADD:')) {
-                const newContactName = content.replace('ADD:', '').trim();
-                if (!State.contacts[newContactName]) {
-                    State.contacts[newContactName] = { messages: [], unread: 0, color: getRandomColor() };
-                }
-                saveData();
-                if(State.isOpen && !State.currentChat) renderContactList();
-                continue;
-            }
-
-            const isSenderUser = checkIsUser(sender);
-            const isReceiverUser = checkIsUser(receiver);
-            content = parseEmojiContent(content);
-
-            if (!isSenderUser && isReceiverUser) {
-                if (!State.contacts[sender]) {
-                    State.contacts[sender] = { messages: [], unread: 0, color: getRandomColor() };
-                    saveData();
-                }
-                addMessageLocal(sender, content, 'recv', timeStr);
-            }
-            else if (isSenderUser && !isReceiverUser) {
-                if (!State.contacts[receiver]) {
-                    State.contacts[receiver] = { messages: [], unread: 0, color: getRandomColor() };
-                    saveData();
-                }
-                addMessageLocal(receiver, content, 'sent', timeStr);
-            }
-        }
-    }
-
-    function addMessageLocal(name, content, type, timeStr) {
-        if (!State.contacts[name]) {
-            State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
-        }
-        const msgs = State.contacts[name].messages;
-        const lastMsg = msgs[msgs.length - 1];
-        
-        // 简单防抖
-        if (lastMsg && lastMsg.content === content && lastMsg.type === type) {
-            if (Date.now() - (lastMsg.realTime || 0) < 3000) return;
-        }
-        
-        msgs.push({ type, content, displayTime: timeStr || "刚刚", realTime: Date.now() });
-        if (type === 'recv' && State.currentChat !== name) State.contacts[name].unread++;
-        
-        saveData();
-        updateMainBadge(); // 这里不会再报错了
-        if (State.isOpen) {
-            if (State.currentChat === name) renderChat(name);
-            else if (!State.currentChat) renderContactList();
-        }
-    }
-
-    // --- UI 渲染与交互 ---
-    function updateContextInfo() {
-        if (!window.SillyTavern || !window.SillyTavern.getContext) return;
-        const context = window.SillyTavern.getContext();
-        if (context.name) State.userName = context.name;
-        else if (context.user_name) State.userName = context.user_name;
-
-        const newFileId = context.chatId || context.characterId;
-        if (newFileId && newFileId !== State.currentChatFileId) {
-            State.currentChatFileId = newFileId;
-            State.contacts = {}; 
-            loadData(); 
-            renderContactList();
-        }
-    }
-
-    function loadData() {
-        State.contacts = {}; 
-        if (State.currentChatFileId) {
-            const raw = localStorage.getItem(STORAGE_PREFIX + State.currentChatFileId);
-            if(raw) {
-                try { State.contacts = JSON.parse(raw); } catch(e) {}
-            }
-        }
-        updateMainBadge();
-    }
-
-    function bindEvents() {
-        $('#ow-phone-toggle').click(() => togglePhone(true));
-        $('#ow-close-btn').click(() => togglePhone(false));
-        $('#ow-back-btn').click(() => { renderContactList(); });
-        $('#ow-add-btn').click(() => {
-            const name = prompt("添加好友：");
-            if (name && name.trim()) {
-                const cleanName = name.trim();
-                if (!State.contacts[cleanName]) {
-                    State.contacts[cleanName] = { messages: [], unread: 0, color: getRandomColor() };
-                    saveData();
-                }
-                renderChat(cleanName);
-            }
-        });
-        $('#ow-send-btn').click(handleUserSend);
-        $('#ow-input').keypress((e) => { if(e.key === 'Enter') handleUserSend(); });
-        $('#ow-emoji-btn').click(() => { $('#ow-emoji-panel').slideToggle(150); });
-
-        const header = document.getElementById('ow-phone-header');
-        const container = document.getElementById('ow-phone-container');
-        let offset = {x:0, y:0};
-        header.onmousedown = (e) => {
-            if (e.target.classList.contains('ow-header-icon')) return;
-            State.isDragging = true;
-            offset.x = e.clientX - container.offsetLeft;
-            offset.y = e.clientY - container.offsetTop;
-            header.style.cursor = 'grabbing';
-        };
-        document.onmouseup = () => { State.isDragging = false; header.style.cursor = 'grab'; };
-        document.onmousemove = (e) => {
-            if(!State.isDragging) return;
-            e.preventDefault();
-            container.style.left = (e.clientX - offset.x) + 'px';
-            container.style.top = (e.clientY - offset.y) + 'px';
-            container.style.bottom = 'auto';
-            container.style.right = 'auto';
-        };
+// 3. 数据处理：添加消息
+function addMessage(contactName, content, type) {
+    if (!PHONE_STATE.contacts[contactName]) {
+        PHONE_STATE.contacts[contactName] = { messages: [], unread: 0 };
+        toastr.success(`📱 新联系人添加: ${contactName}`); // 系统通知
     }
     
-    function togglePhone(show) {
-        State.isOpen = show;
-        if (show) {
-            $('#ow-phone-container').removeClass('ow-hidden');
-            $('#ow-phone-toggle').hide();
-            if (State.currentChat) renderChat(State.currentChat);
-            else renderContactList();
-        } else {
-            $('#ow-phone-container').addClass('ow-hidden');
-            $('#ow-phone-toggle').show();
-        }
-        updateMainBadge();
+    PHONE_STATE.contacts[contactName].messages.push({
+        sender: type === 'recv' ? contactName : '我',
+        content: content,
+        type: type
+    });
+
+    if (type === 'recv' && PHONE_STATE.currentChat !== contactName) {
+        PHONE_STATE.contacts[contactName].unread++;
+        PHONE_STATE.unreadCount++;
     }
+    
+    savePhoneData();
+}
 
-    function renderContactList() {
-        State.currentChat = null;
-        $('#ow-header-title').text("通讯录");
-        $('#ow-back-btn').hide();
-        $('#ow-add-btn').show(); 
-        $('#ow-close-btn').show();
-        $('#ow-chat-footer').hide();
-        $('#ow-emoji-panel').hide();
-        const body = $('#ow-phone-body');
-        body.empty();
-        const names = Object.keys(State.contacts);
-        if (names.length === 0) {
-            body.html(`<div class="ow-empty-state"><div style="font-size:40px; margin-bottom:10px;">📭</div>暂无联系人<br>点击右上角 ➕ 添加好友</div>`);
-            return;
-        }
-        names.forEach(name => {
-            const info = State.contacts[name];
-            const lastMsg = info.messages[info.messages.length - 1];
-            let preview = lastMsg ? lastMsg.content : "暂无消息";
-            if (preview.includes('<img')) preview = '[图片]';
-            const item = $(`
-                <div class="ow-contact-item">
-                    <div class="ow-avatar" style="background:${info.color || '#555'}">
-                        ${name[0].toUpperCase()}
-                        ${info.unread > 0 ? `<div class="ow-badge">${info.unread}</div>` : ''}
-                    </div>
-                    <div class="ow-info">
-                        <div class="ow-name">${name}</div>
-                        <div class="ow-preview">${preview}</div>
-                    </div>
-                </div>
-            `);
-            item.click(() => renderChat(name));
-            item.on('contextmenu', (e) => {
-                e.preventDefault();
-                if(confirm(`确定要删除联系人 ${name} 吗？`)) {
-                    delete State.contacts[name];
-                    saveData();
-                    renderContactList();
-                }
-            });
-            body.append(item);
-        });
+// 4. 用户发送消息 (Inject Logic)
+async function handleUserSend() {
+    const content = $('#ow-input').val();
+    const target = PHONE_STATE.currentChat;
+    if (!content || !target) return;
+
+    // 1. UI上显示
+    addMessage(target, content, 'sent');
+    $('#ow-input').val('');
+    renderChatWindow(target);
+
+    // 2. 【关键】注入到酒馆的聊天流中
+    // 我们构造一个系统指令，假装是环境描写，告诉AI用户发短信了
+    const systemPrompt = `\n[System: {{user}} just sent a text message to ${target}: "${content}". ${target} should reply via SMS format if they see it.]\n`;
+    
+    // 调用酒馆API发送（这里使用一种通用的注入方式，或者直接追加到输入框如果用户希望）
+    // 为了更无缝，我们直接作为"User Message"发送，但带上特定Wrapper
+    // 或者，更高级的做法是使用 '/send' 命令触发
+    
+    const textarea = document.getElementById('send_textarea');
+    if (textarea) {
+        const originalText = textarea.value;
+        // 强制触发一次生成，告诉AI我发消息了
+        // 注意：这里我们让AI知道发生了什么，但不强迫AI立刻描写场景，而是让它在后台处理
+        const injection = `[短信发送给 ${target}: "${content}"]`;
+        
+        // 简单粗暴法：直接填入输入框并发送（你可以改为静默注入context）
+        textarea.value = injection;
+        // 触发发送按钮点击
+        document.getElementById('send_but').click(); 
     }
+}
 
-    function renderChat(name) {
-        State.currentChat = name;
-        if(State.contacts[name]) State.contacts[name].unread = 0;
-        updateMainBadge();
-        saveData();
-        
-        $('#ow-header-title').text(name);
-        $('#ow-back-btn').show(); 
-        $('#ow-add-btn').hide();  
-        $('#ow-chat-footer').show();
-        $('#ow-emoji-panel').hide();
+// 5. 渲染：通讯录
+function renderContactList() {
+    PHONE_STATE.currentChat = null;
+    $('#ow-header-title').text("通讯录 (点击进入)");
+    $('#ow-input-area').hide();
+    const list = $('#ow-phone-body');
+    list.empty();
 
-        const body = $('#ow-phone-body');
-        let view = body.find(`.ow-chat-view[data-chat-id="${name}"]`);
-        const msgs = State.contacts[name]?.messages || [];
-        
-        if (view.length === 0) {
-            body.empty();
-            view = $(`<div class="ow-chat-view" data-chat-id="${name}"></div>`);
-            body.append(view);
-            msgs.forEach((msg, index) => {
-                appendMsgToView(view, msg, name, index);
-            });
-            body[0].scrollTop = body[0].scrollHeight;
-        } else {
-            const currentCount = view.children().length;
-            const targetCount = msgs.length;
-            if (targetCount > currentCount) {
-                for (let i = currentCount; i < targetCount; i++) { appendMsgToView(view, msgs[i], name, i); }
-                body.animate({ scrollTop: body[0].scrollHeight }, 300);
-            } else if (targetCount < currentCount) {
-                body.empty();
-                renderChat(name); 
-                return;
+    Object.keys(PHONE_STATE.contacts).forEach(name => {
+        const info = PHONE_STATE.contacts[name];
+        const unreadBadge = info.unread > 0 ? `<span style="color:red;margin-left:5px">(${info.unread})</span>` : '';
+        const item = $(`<div class="ow-contact-item"><span>${name}${unreadBadge}</span><span>></span></div>`);
+        item.click(() => renderChatWindow(name));
+        list.append(item);
+    });
+}
+
+// 6. 渲染：聊天窗口
+function renderChatWindow(name) {
+    PHONE_STATE.currentChat = name;
+    // 清除未读
+    const diff = PHONE_STATE.contacts[name].unread;
+    PHONE_STATE.unreadCount -= diff;
+    PHONE_STATE.contacts[name].unread = 0;
+    updateBadge();
+
+    $('#ow-header-title').html(`<span style="color:#aaa"><</span> ${name}`);
+    $('#ow-input-area').show();
+    
+    const list = $('#ow-phone-body');
+    list.empty();
+    
+    // 构建消息流
+    const msgs = PHONE_STATE.contacts[name].messages;
+    msgs.forEach(msg => {
+        const div = $(`<div class="ow-msg ${msg.type === 'recv' ? 'ow-msg-left' : 'ow-msg-right'}">${msg.content}</div>`);
+        list.append(div);
+    });
+    
+    // 滚动到底部
+    list.scrollTop(list[0].scrollHeight);
+}
+
+// 辅助功能
+function togglePhone(show) {
+    PHONE_STATE.isVisible = show;
+    if (show) {
+        $('#ow-phone-container').fadeIn(200);
+        $('#ow-phone-toggle').fadeOut(200);
+        if(!PHONE_STATE.currentChat) renderContactList();
+    } else {
+        $('#ow-phone-container').fadeOut(200);
+        $('#ow-phone-toggle').fadeIn(200);
+    }
+}
+
+function updateBadge() {
+    const badge = $('#ow-main-badge');
+    if (PHONE_STATE.unreadCount > 0) {
+        badge.text(PHONE_STATE.unreadCount).show();
+    } else {
+        badge.hide();
+    }
+}
+
+function playSound() {
+    // 尝试播放同目录下的 notify.mp3
+    const audio = new Audio('/scripts/extensions/open_world_phone/notify.mp3');
+    audio.volume = 0.5;
+    audio.play().catch(e => console.log('声音播放失败，可能需要交互', e));
+}
+
+// 数据持久化 (保存到 extension_settings)
+function savePhoneData() {
+    if (window.extensionsAPI) {
+        // 酒馆的标准扩展API
+        // extensionsAPI.settings.save('open_world_phone', PHONE_STATE.contacts);
+        // 为了简单演示，这里先存 localStorage，生产环境建议用 extensionsAPI
+        localStorage.setItem('ow_phone_data', JSON.stringify(PHONE_STATE.contacts));
+    }
+}
+
+function loadPhoneData() {
+    const data = localStorage.getItem('ow_phone_data');
+    if (data) {
+        PHONE_STATE.contacts = JSON.parse(data);
+        // 重新计算未读
+        let count = 0;
+        Object.values(PHONE_STATE.contacts).forEach(c => count += c.unread || 0);
+        PHONE_STATE.unreadCount = count;
+        updateBadge();
+    }
+}
+
+// === 入口 ===
+jQuery(document).ready(function () {
+    initPhoneUI();
+
+    // 监听酒馆的消息接收事件
+    // 注意：SillyTavern 的事件系统通常是通过 eventSource 或 mutationObserver
+    // 这里使用最通用的 extensionAPI 如果可用，或者监听 socket
+    
+    // 这是一个简化的 Hook，实际在酒馆里建议使用 extensionAPI.event.on('message_received', ...)
+    // 为了确保你能用，我们用一个更底层的 MutationObserver 监听聊天区域的变化
+    
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes.length) {
+                $(mutation.addedNodes).each(function() {
+                    // 检查是否是新消息 div
+                    if ($(this).hasClass('mes')) { 
+                        const text = $(this).find('.mes_text').text();
+                        // 1. 解析消息
+                        parseIncomingMessage(text);
+                        // 2. 可选：隐藏掉消息里的 [SMS] 标签，保持界面整洁
+                        // (这需要更复杂的DOM操作，暂时略过，为了完美可以加)
+                    }
+                });
             }
-        }
-    }
-
-    function appendMsgToView(viewContainer, msg, contactName, index) {
-        const isMe = msg.type === 'sent';
-        const div = $(`
-            <div class="ow-msg-wrapper" style="display:flex; flex-direction:column; align-items:${isMe?'flex-end':'flex-start'};">
-                <div class="ow-msg ${isMe ? 'ow-msg-right' : 'ow-msg-left'}">${msg.content}</div>
-                <div style="font-size:10px; color:#888; margin-top:2px;">${msg.displayTime || ''}</div>
-            </div>
-        `);
-        div.find('.ow-msg').on('contextmenu', (e) => {
-            e.preventDefault();
-            if(confirm("删除这条消息？")) deleteMessage(contactName, index);
         });
-        viewContainer.append(div);
-    }
+    });
 
-    function parseEmojiContent(text) {
-        const bqbMatch = text.match(/\[(?:bqb-|表情:)\s*(.+?)\]/);
-        if (bqbMatch) {
-            const label = bqbMatch[1].trim();
-            const found = EMOJI_DB.find(e => e.label === label);
-            if (found) return `<img src="${found.url}" class="ow-msg-img">`;
-            return `[表情: ${label}]`;
-        }
-        return text;
+    const chatContainer = document.getElementById('chat');
+    if (chatContainer) {
+        observer.observe(chatContainer, { childList: true, subtree: true });
     }
-
-    function handleUserSend() {
-        const input = document.getElementById('ow-input');
-        const text = input.value.trim();
-        const target = State.currentChat; 
-        if (!text || !target) return;
-        const now = new Date();
-        const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-        addMessageLocal(target, text, 'sent', timeStr);
-        input.value = '';
-        const command = `\n<msg>{{user}}|${target}|${text}|${timeStr}</msg>`;
-        appendToMainInput(command);
-    }
-
-    function sendEmoji(item) {
-        const target = State.currentChat;
-        if (!target) return;
-        const now = new Date();
-        const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-        const imgHtml = `<img src="${item.url}" class="ow-msg-img">`;
-        addMessageLocal(target, imgHtml, 'sent', timeStr);
-        $('#ow-emoji-panel').hide();
-        const command = `\n<msg>{{user}}|${target}|[bqb-${item.label}]|${timeStr}</msg>`;
-        appendToMainInput(command);
-    }
-
-    function appendToMainInput(text) {
-        const textarea = document.getElementById('send_textarea');
-        if (!textarea) return;
-        let currentVal = textarea.value;
-        if (currentVal.length > 0 && !currentVal.endsWith('\n')) currentVal += '\n';
-        textarea.value = currentVal + text;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        textarea.focus();
-    }
-
-    $(document).ready(() => setTimeout(init, 500));
-})();
+});
