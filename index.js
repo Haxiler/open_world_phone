@@ -1,8 +1,7 @@
 (function () {
-    // 存储前缀，用于隔离不同聊天的数
-    const STORAGE_PREFIX = "ow_phone_";
+    const STORAGE_PREFIX = "ow_phone_v3_";
     
-    // 表情包字典 (保留你喜欢的)
+    // 表情包字典 (请保留你整理好的完整列表)
     const EMOJI_DB = [
         // --- 基础互动 ---
         { label: "打招呼", url: "https://sharkpan.xyz/f/LgwT7/AC229A80203166B292155ADA057DE423_0.gif" },
@@ -74,16 +73,16 @@
         isOpen: false,
         isDragging: false,
         userName: "User",
-        currentContextId: null, // 当前聊天的唯一ID
+        currentChatFileId: null, // 核心：当前聊天文件的唯一ID
     };
 
     function init() {
-        console.log("[OW Phone] Init v3.2 - Context Binding");
+        console.log("[OW Phone] Init v3.3 - Chat File Binding & System Protocol");
         
-        // 尝试获取当前用户信息和聊天ID
+        // 1. 初始化绑定
         updateContextInfo();
-        loadData(); // 加载对应 ID 的数据
         
+        // 2. 注入 UI
         const layout = `
         <div id="ow-phone-toggle" title="打开手机">
             💬<span id="ow-main-badge" class="ow-badge" style="display:none">0</span>
@@ -112,26 +111,28 @@
             bindEvents();
         }
 
-        // 监听 DOM 变化 (读取数据胶囊)
+        // 3. 启动监听 (专门抓取 .ow-raw-data)
         const observer = new MutationObserver((mutations) => {
-            // 1. 检查是否换了聊天卡 (Context ID 变化)
+            // 每次变动都检查一下是不是换了聊天文件
             updateContextInfo();
             
-            // 2. 扫描新消息
             mutations.forEach(mutation => {
                 if (mutation.addedNodes.length) {
                     $(mutation.addedNodes).each(function() {
-                        // 查找我们埋下的“数据胶囊”
+                        // 递归查找胶囊
                         const capsule = $(this).find('.ow-raw-data');
                         if (capsule.length > 0) {
-                            const rawMsg = capsule.attr('data-raw');
-                            console.log("捕捉到胶囊数据:", rawMsg);
-                            parseCommand(rawMsg);
+                            capsule.each(function() {
+                                const rawMsg = $(this).attr('data-raw');
+                                console.log("[OW Phone] 捕捉到胶囊:", rawMsg);
+                                parseCommand(rawMsg);
+                            });
                         }
                         
-                        // 兼容：有时候胶囊本身就是 addedNode
+                        // 自身就是胶囊
                         if ($(this).hasClass('ow-raw-data')) {
                             const rawMsg = $(this).attr('data-raw');
+                            console.log("[OW Phone] 捕捉到胶囊(自身):", rawMsg);
                             parseCommand(rawMsg);
                         }
                     });
@@ -145,83 +146,86 @@
         renderContactList();
     }
 
-    // === 核心：上下文绑定与更新 ===
+    // === 核心 1：绑定聊天文件 (Chat File Binding) ===
     function updateContextInfo() {
-        // 尝试从酒馆全局对象获取信息
-        // 不同的酒馆版本，获取方式可能不同，这里做多重兼容
-        let newContextId = null;
-        let newUserName = "User";
+        if (!window.SillyTavern || !window.SillyTavern.getContext) return;
+        
+        const context = window.SillyTavern.getContext();
+        
+        // 获取用户名
+        if (context.name) State.userName = context.name;
+        else if (context.user_name) State.userName = context.user_name;
 
-        if (window.SillyTavern) {
-            const context = window.SillyTavern.getContext ? window.SillyTavern.getContext() : null;
-            if (context) {
-                // 使用 characterId 或 chatId 作为唯一标识
-                // 优先使用 characterId，这样同角色的聊天可以继承通讯录 (或者用 chatId 彻底隔离)
-                // 这里我们用 characterId，体验更像“跟这个人聊天，手机里存着他”
-                newContextId = context.characterId || context.groupId;
-                
-                if (context.name) newUserName = context.name;
-                else if (context.user_name) newUserName = context.user_name;
-            }
-        }
+        // 获取聊天文件ID (chatId 是文件名的哈希或文件名本身，这才是真正的“存档ID”)
+        // 如果 chatId 不存在，降级使用 characterId (针对旧版酒馆)
+        const newFileId = context.chatId || context.characterId;
 
-        // 降级方案：如果 API 拿不到，就从 DOM 里凑合拿一个标识
-        if (!newContextId) {
-            // 比如读取当前角色名标题
-            newContextId = $('#character-name').text() || "default_room";
-        }
-
-        // 如果 ID 变了，说明换人了！重新加载数据
-        if (newContextId !== State.currentContextId) {
-            console.log(`[OW Phone] 切换聊天环境: ${State.currentContextId} -> ${newContextId}`);
-            State.currentContextId = newContextId;
-            State.userName = newUserName;
-            loadData(); // 加载新环境的数据
+        if (newFileId && newFileId !== State.currentChatFileId) {
+            console.log(`[OW Phone] 切换存档: ${State.currentChatFileId} -> ${newFileId}`);
+            State.currentChatFileId = newFileId;
+            // 切换存档后，立即重载数据
+            State.contacts = {}; 
+            loadData(); 
             renderContactList();
         }
     }
 
-    // === 解析器 (读胶囊) ===
+    // === 核心 2：解析器 (支持 System 指令) ===
     function parseCommand(text) {
         if (!text) return;
+        
+        // 解码 HTML 实体 (防止 &lt; 导致正则失败)
+        const decodedText = text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
-        // 1. 加好友 [ADD_CONTACT:xxx]
-        // 注意：因为正则可能把 ADD_CONTACT 也包进去了，或者它是独立的
-        // 我们只处理 <msg>，ADD_CONTACT 建议直接在 JS 里处理，或者也包进胶囊
-        // 简单起见，我们假设 ADD_CONTACT 依然是明文或者在胶囊旁边
-        // 这里主要解析 <msg>
+        // 正则匹配: <msg>发送|接收|内容|时间</msg>
+        const msgRegex = /<msg>(.+?)\|(.+?)\|(.+?)\|(.+?)<\/msg>/g;
+        let match;
         
-        const msgRegex = /<msg>(.+?)\|(.+?)\|(.+?)\|(.+?)<\/msg>/;
-        const match = text.match(msgRegex);
-        
-        if (match) {
+        while ((match = msgRegex.exec(decodedText)) !== null) {
             let sender = match[1].trim();
             let receiver = match[2].trim();
             let content = match[3].trim();
             let timeStr = match[4].trim();
 
+            console.log(`[OW Phone] 解析成功: ${sender} -> ${receiver} : ${content}`);
+
+            // === A. 处理加好友 (System 指令) ===
+            // 格式: <msg>System|User|ADD:刻晴|时间</msg>
+            if (sender.toLowerCase() === 'system' && content.startsWith('ADD:')) {
+                const newContactName = content.replace('ADD:', '').trim();
+                if (!State.contacts[newContactName]) {
+                    State.contacts[newContactName] = { messages: [], unread: 0, color: getRandomColor() };
+                    saveData();
+                    toastr.success(`📱 自动添加好友: ${newContactName}`);
+                    // 如果手机开着，刷新列表
+                    if(State.isOpen && !State.currentChat) renderContactList();
+                }
+                continue; // 处理完系统指令，跳过后续
+            }
+
+            // === B. 处理普通消息 ===
             const isSenderUser = checkIsUser(sender);
             const isReceiverUser = checkIsUser(receiver);
 
             content = parseEmojiContent(content);
 
+            // 别人发给我 (存为 recv)
             if (!isSenderUser && isReceiverUser) {
-                // 别人发给我 -> 自动加好友
+                // 如果是陌生人，也自动建档
+                if (!State.contacts[sender]) {
+                    State.contacts[sender] = { messages: [], unread: 0, color: getRandomColor() };
+                    saveData();
+                }
                 addMessageLocal(sender, content, 'recv', timeStr);
-            } else if (isSenderUser && !isReceiverUser) {
-                // 我发给别人
-                addMessageLocal(receiver, content, 'sent', timeStr);
             }
-        }
-        
-        // 额外检查加好友指令 (如果它也在 raw text 里)
-        const addMatch = text.match(/\[ADD_CONTACT:\s*(.+?)\]/);
-        if (addMatch) {
-            const name = addMatch[1].trim();
-            if (!State.contacts[name]) {
-                State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
-                saveData();
-                toastr.success(`📱 自动添加好友: ${name}`);
+            // 我发给别人 (存为 sent)
+            else if (isSenderUser && !isReceiverUser) {
+                // 确保对方在通讯录里
+                if (!State.contacts[receiver]) {
+                    State.contacts[receiver] = { messages: [], unread: 0, color: getRandomColor() };
+                    saveData();
+                }
+                addMessageLocal(receiver, content, 'sent', timeStr);
             }
         }
     }
@@ -231,10 +235,10 @@
     }
 
     function parseEmojiContent(text) {
-        const bqbRegex = /\[bqb-(.+?)\]/;
-        const match = text.match(bqbRegex);
-        if (match) {
-            const label = match[1].trim();
+        // 支持 [bqb-xxx] 和 [表情: xxx] 两种格式
+        const bqbMatch = text.match(/\[(?:bqb-|表情:)\s*(.+?)\]/);
+        if (bqbMatch) {
+            const label = bqbMatch[1].trim();
             const found = EMOJI_DB.find(e => e.label === label);
             if (found) return `<img src="${found.url}" class="ow-msg-img">`;
             return `[表情: ${label}]`;
@@ -259,7 +263,7 @@
         const command = `\n<msg>{{user}}|${target}|${text}|${timeStr}</msg>`;
         appendToMainInput(command);
     }
-    
+
     function sendEmoji(item) {
         const target = State.currentChat;
         if (!target) return;
@@ -275,16 +279,14 @@
     function appendToMainInput(text) {
         const textarea = document.getElementById('send_textarea');
         if (!textarea) return;
-        
         let currentVal = textarea.value;
         if (currentVal.length > 0 && !currentVal.endsWith('\n')) currentVal += '\n';
         textarea.value = currentVal + text;
-        
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         textarea.focus();
     }
 
-    // === 核心：带 Key 的存储 ===
+    // === 存储与数据 ===
     function addMessageLocal(name, content, type, timeStr) {
         if (!State.contacts[name]) {
             State.contacts[name] = { messages: [], unread: 0, color: getRandomColor() };
@@ -293,8 +295,7 @@
         const msgs = State.contacts[name].messages;
         const lastMsg = msgs[msgs.length - 1];
 
-        // 防重逻辑：内容相同且时间极短(3秒内)则忽略
-        // 这是一个简单有效的防抖，防止 DOM 刷新导致重复读取
+        // 3秒防抖
         if (lastMsg && lastMsg.content === content && lastMsg.type === type) {
             if (Date.now() - (lastMsg.realTime || 0) < 3000) return;
         }
@@ -317,41 +318,8 @@
             if (State.currentChat === name) renderChat(name);
             else if (!State.currentChat) renderContactList();
         }
-        
-        // 每次更新数据时，顺便更新一下 Prompt 里的通讯录
-        injectContactsToPrompt();
-    }
-    
-    // === 动态注入：告诉 AI 谁在通讯录里 ===
-    function injectContactsToPrompt() {
-        // 获取所有好友名字
-        const names = Object.keys(State.contacts).join(', ');
-        if (!names) return;
-        
-        // 这是一个高级技巧：我们不改文件，直接挂载到 extension_prompt_types
-        // 或者简单粗暴地，我们建议用户在 Author's Note 里留一个占位符
-        // 这里演示最简单的：控制台输出，提醒用户
-        // 实际上，只要 AI 记得住上下文，它不需要每次都看名单
-        // 但为了稳妥，我们可以尝试修改 Author's Note (如果 API 允许)
-        // 鉴于稳定性，这里暂不做自动修改 A/N，避免冲突
     }
 
-    function saveData() { 
-        // 使用带有 ID 的 Key 进行存储
-        if (State.currentContextId) {
-            localStorage.setItem(STORAGE_PREFIX + State.currentContextId, JSON.stringify(State.contacts));
-        }
-    }
-    
-    function loadData() {
-        State.contacts = {}; // 先清空，防止串台
-        if (State.currentContextId) {
-            const raw = localStorage.getItem(STORAGE_PREFIX + State.currentContextId);
-            if(raw) State.contacts = JSON.parse(raw);
-        }
-        updateMainBadge();
-    }
-    
     function deleteMessage(contactName, index) {
         if (!State.contacts[contactName]) return;
         State.contacts[contactName].messages.splice(index, 1);
@@ -360,8 +328,31 @@
         toastr.success("消息已删除");
     }
 
+    function saveData() { 
+        // 使用 ChatFileId 作为 Key，实现不同存档隔离
+        if (State.currentChatFileId) {
+            localStorage.setItem(STORAGE_PREFIX + State.currentChatFileId, JSON.stringify(State.contacts));
+        }
+    }
+    
+    function loadData() {
+        State.contacts = {}; 
+        if (State.currentChatFileId) {
+            const raw = localStorage.getItem(STORAGE_PREFIX + State.currentChatFileId);
+            if(raw) {
+                try {
+                    State.contacts = JSON.parse(raw);
+                    console.log(`[OW Phone] 已加载存档数据: ${State.currentChatFileId}`);
+                } catch(e) {
+                    console.error("数据解析失败", e);
+                }
+            }
+        }
+        updateMainBadge();
+    }
+
     // ... (UI 渲染函数：bindEvents, togglePhone, renderContactList, renderChat, renderEmojiPanel, updateMainBadge, getRandomColor) ...
-    // 请务必保留这些函数，代码与之前版本一致
+    // 请务必完整复制之前的 UI 函数部分
     function bindEvents() {
         $('#ow-phone-toggle').click(() => togglePhone(true));
         $('#ow-close-btn').click(() => togglePhone(false));
