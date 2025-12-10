@@ -50,7 +50,6 @@
                                 <span>信息</span>
                             </button>
                             <div class="nav-title-group">
-                                <div class="chat-avatar-placeholder"></div>
                                 <span class="nav-title-small" id="chat-title">用户</span>
                             </div>
                             <button class="nav-btn" style="visibility:hidden; width: 40px"></button>
