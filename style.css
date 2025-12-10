@@ -92,13 +92,13 @@
 .page.active { transform: translateX(0); opacity: 1; z-index: 2; }
 
 /* =========================================
-   iOS 导航栏 (Nav Bar) - 修复居中
+   iOS 导航栏
    ========================================= */
 .nav-bar {
     height: 44px;
     display: flex;
     align-items: center;
-    justify-content: space-between; /* 按钮靠两边 */
+    justify-content: space-between; 
     padding: 0 16px;
     background-color: rgba(255,255,255,0.85);
     backdrop-filter: blur(20px);
@@ -115,39 +115,32 @@
     display: flex;
     align-items: center;
     position: relative;
-    z-index: 5; /* 确保按钮在标题图层之上，可点击 */
+    z-index: 5;
 }
 
-/* 左侧 "编辑" 按钮 */
 .text-btn {
     color: #007AFF;
     font-size: 17px;
     font-weight: 400;
 }
 
-/* 标题 - 绝对居中修复 */
 .nav-title { 
     font-weight: 600; 
     font-size: 17px;
     color: #000;
-    
-    /* 核心修复代码 */
     position: absolute;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    z-index: 1; /* 位于按钮下方 */
-    pointer-events: none; /* 防止遮挡中间区域的点击（虽然这里没点击事件，但为了保险） */
+    z-index: 1; 
+    pointer-events: none; 
 }
 
-/* 详情页标题组合 - 详情页通常也用绝对定位，这里简单处理，若详情页也不居中可同理修改 */
 .nav-title-group {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    
-    /* 让详情页标题也绝对居中 */
     position: absolute;
     left: 50%;
     top: 50%;
@@ -160,7 +153,6 @@
     color: #000;
 }
 
-/* 返回按钮 */
 .back-btn {
     color: #007AFF;
     font-size: 17px;
@@ -168,7 +160,7 @@
 }
 
 /* =========================================
-   搜索栏 (装饰用)
+   搜索栏 (功能增强版)
    ========================================= */
 .ios-search-bar {
     padding: 0 16px 8px 16px;
@@ -184,6 +176,21 @@
     color: #8e8e93;
     font-size: 15px;
     gap: 6px;
+}
+
+/* 新增：真正的输入框样式 */
+#phone-search-bar {
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 15px;
+    color: #000;
+    width: 100%;
+    height: 100%;
+    padding-right: 10px;
+}
+#phone-search-bar::placeholder {
+    color: #8e8e93;
 }
 
 /* =========================================
@@ -251,8 +258,13 @@
     position: relative;
     word-wrap: break-word;
 }
+.message-bubble img {
+    max-width: 100%;
+    border-radius: 8px;
+    display: block;
+    margin: 4px 0;
+}
 
-/* 对方 (灰) */
 .message-bubble.received {
     align-self: flex-start;
     background-color: #e9e9eb;
@@ -260,7 +272,6 @@
     border-bottom-left-radius: 4px;
 }
 
-/* 我 (蓝) */
 .message-bubble.sent {
     align-self: flex-end;
     background-color: #007AFF;
@@ -280,7 +291,6 @@
     border-top: 0.5px solid #bdc5cd;
 }
 
-/* 强迫症修复：完全居中的加号 */
 .plus-btn {
     width: 28px;
     height: 28px;
@@ -288,12 +298,9 @@
     background-color: #c7c7cc;
     border-radius: 50%;
     color: white;
-    
-    /* Flex 居中大法 */
     display: flex;
     align-items: center;
     justify-content: center;
-    
     cursor: pointer;
     transition: background 0.2s;
     padding-bottom: 1px;
@@ -325,5 +332,4 @@
 .send-btn svg { width: 18px; height: 18px; fill: white; margin-left: 2px; }
 .send-btn:active { transform: scale(0.9); }
 
-/* 隐藏滚动条但保留功能 */
 ::-webkit-scrollbar { width: 0px; }
