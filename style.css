@@ -466,3 +466,32 @@
     transform: scale(0.9);
     background: #d1d1d6;
 }
+/* =========================================
+   新消息提示点 (Light Gray Dot)
+   ========================================= */
+.notification-dot {
+    position: absolute;
+    top: -3px;  /* 稍微突出一带点 */
+    right: -3px;
+    width: 14px;
+    height: 14px;
+    
+    /* 高级亮灰色 */
+    background-color: #E5E5EA; 
+    
+    /* 深色描边，模拟镂空效果，增加层次感 */
+    border: 3px solid #333; 
+    
+    border-radius: 50%;
+    z-index: 10000;
+    
+    /* 默认隐藏，有消息时显示 */
+    display: none;
+    transform: scale(0);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.notification-dot.active {
+    display: block;
+    transform: scale(1);
+}
