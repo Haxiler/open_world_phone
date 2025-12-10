@@ -1,5 +1,5 @@
 /* ==================================================================================
-   模块: Style (样式表) - v1.9.1 UI Fixes (Search Bar & Alignment)
+   模块: Style (样式表) - v1.9.2 UI Fixes (Final Polish)
    ================================================================================== */
 
 /* =========================================
@@ -184,50 +184,59 @@
 }
 
 /* =========================================
-   搜索栏 (Search Bar) - 修正版
+   搜索栏 (Search Bar) - 终极修正版
    ========================================= */
 .ios-search-bar {
     padding: 0 16px 8px 16px;
 }
 .search-input {
-    background-color: #E3E3E8; /* 统一浅灰底色 */
+    background-color: #E3E3E8; /* 原生浅灰 */
     border-radius: 10px;
     height: 36px;
     display: flex;
     align-items: center;
     justify-content: flex-start;
     padding-left: 10px;
-    color: #8e8e93;
-    font-size: 15px;
     gap: 6px;
     transition: background-color 0.2s;
 }
 
-/* 放大镜图标颜色 */
+/* 图标颜色 */
 .search-input svg path {
-    fill: #8e8e93; /* 默认深灰 */
+    fill: #8e8e93; 
 }
 
+/* 输入框核心修正：强制透明，清除默认样式 */
 #phone-search-bar {
-    background: transparent;
-    border: none;
-    outline: none;
+    background-color: transparent !important; /* 强制去底色 */
+    background-image: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    
+    /* 清除不同浏览器的默认外观 */
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    
     font-size: 15px;
-    color: #000; /* 输入文字为黑色 */
+    color: #000; /* 输入字为黑色 */
     width: 100%;
     height: 100%;
     padding-right: 10px;
 }
 
-/* 占位符统一为深灰，不反转 */
 #phone-search-bar::placeholder { 
     color: #8e8e93; 
     opacity: 1;
 }
 
-/* 激活态仅改变背景亮度，不做反色 */
+/* 激活态：整个容器变深一点点，模拟 iOS 行为，而不是变白 */
 .search-input:focus-within {
     background-color: #d1d1d6; 
+}
+/* 确保激活时输入框本身依然透明 */
+#phone-search-bar:focus-within {
+    background-color: transparent !important;
 }
 
 /* =========================================
@@ -352,7 +361,7 @@
 }
 
 /* =========================================
-   底部输入栏 (Input Area) - 对齐修正版
+   底部输入栏 (Input Area) - 完美对称版
    ========================================= */
 .input-area {
     padding: 10px 16px 20px 16px;
@@ -363,7 +372,7 @@
     border-top: 0.5px solid #bdc5cd;
 }
 
-/* 左侧加号按钮 (参考基准) */
+/* 左侧加号按钮 (基准: 28px) */
 .plus-btn {
     width: 28px;
     height: 28px;
@@ -376,7 +385,7 @@
     justify-content: center;
     cursor: pointer;
     transition: background 0.2s;
-    padding-bottom: 1px; /* 视觉微调 */
+    padding-bottom: 1px;
 }
 .plus-btn:hover { background-color: #aeb0b2; }
 
@@ -393,12 +402,12 @@
 }
 
 /* --- 发送按钮 (右侧) --- 
-   修正：尺寸与左侧完全一致 (28px)，轴对称
+   轴对称设计：尺寸与左侧严格一致 (28px)，纯 Flex 居中
 */
 .send-btn {
-    width: 28px;      /* 改为 28px */
+    width: 28px;      
     min-width: 28px;
-    height: 28px;     /* 改为 28px */
+    height: 28px;     
     min-height: 28px;
     
     border-radius: 50%;
@@ -406,12 +415,13 @@
     
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: center; /* 物理居中 */
     
     cursor: pointer;
     transition: transform 0.1s, background-color 0.2s;
     box-shadow: none;
-    padding: 0;
+    padding: 0; /* 移除内边距防止挤压 */
+    margin: 0;
 }
 
 .send-btn:hover {
@@ -423,16 +433,13 @@
 }
 
 .send-btn svg { 
-    width: 15px;   /* 缩小图标以适配 28px 容器 */
+    width: 15px;   /* 适配 28px 按钮 */
     height: 15px; 
     fill: white; 
     
     display: block;
-    margin: 0;
-    
-    /* 视觉重心修正：纸飞机通常看起来偏左，向右微调 2px 达到视觉居中 */
-    margin-left: 2px; 
-    margin-top: 1px;
+    margin: 0;     /* 移除所有 margin，依靠 Flex 居中 */
+    transform: translate(1px, 1px); /* 极其微小的光学修正，因为纸飞机重心本身偏左上 */
 }
 
 /* 隐藏滚动条 */
