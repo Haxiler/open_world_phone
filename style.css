@@ -416,3 +416,21 @@
     transform: scale(0.9);
     background: #d1d1d6;
 }
+/* ...原有样式... */
+
+/* =========================================
+   状态栏时间 (适配日期显示)
+   ========================================= */
+#status-bar-time {
+    position: absolute;
+    left: 20px;       /* 向左挪一点，给长日期留空间 */
+    top: 13px;        /* 保持垂直居中 */
+    font-size: 12px;  /* 字号稍微改小，防止撞到刘海 */
+    font-weight: 600;
+    color: #000;
+    z-index: 21;
+    pointer-events: none;
+    font-family: "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: 0.5px;
+    white-space: nowrap; /* 防止换行 */
+}
