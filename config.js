@@ -203,8 +203,6 @@ stickers: [
             { label: "汪", url: "https://files.catbox.moe/iwmiww.jpg" },
             { label: "投降", url: "https://files.catbox.moe/f4ogyw.png" },
             { label: "爱你", url: "https://files.catbox.moe/x5u5sm.png" }
-]
----
         ]
     };
 })();
