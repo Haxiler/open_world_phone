@@ -25,7 +25,7 @@
     const REGEX_XML_MSG = /<msg>(.+?)\|(.+?)\|(.+?)\|(.+?)<\/msg>/gi;
     // 2. 剧情时间正则 (新增：专门抓取 <time>标签)
     // 这里的 (.*?) 会无视冒号是全角还是半角，只要在标签里都抓
-    const REGEX_STORY_TIME = /<time>(.*?)<\/time>/i;
+    const REGEX_STORY_TIME = /(?:<|&lt;)time(?:>|&gt;)(.*?)(?:<|&lt;)\/time(?:>|&gt;)/i;
 
     function scanChatHistory() {
         if (typeof SillyTavern === 'undefined') return;
