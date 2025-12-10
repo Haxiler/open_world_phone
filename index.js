@@ -8,8 +8,8 @@
 
     console.log('📱 ST-iOS-Phone: 最终版启动中...');
 
-    // ==================================================================================
-    // HTML 结构
+   // ==================================================================================
+    // HTML 结构 (iOS Style Update)
     // ==================================================================================
     const html = `
     <div id="st-ios-phone-root">
@@ -26,23 +26,41 @@
                 <div class="pages-wrapper">
                     
                     <div class="page active" id="page-contacts">
-                        <div class="nav-bar">
+                        <div class="nav-bar ios-nav">
+                            <button class="nav-btn text-btn" id="btn-reload-data">编辑</button>
                             <span class="nav-title">信息</span>
-                            <button class="nav-btn icon" id="btn-reload-data" title="手动刷新">↻</button>
+                            <button class="nav-btn icon" id="btn-add-friend" title="新对话">
+                                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#007AFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            </button>
+                        </div>
+                        <div class="ios-search-bar">
+                            <div class="search-input">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="#8e8e93"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <span>搜索</span>
+                            </div>
                         </div>
                         <div class="contact-list" id="contact-list-container">
                             </div>
                     </div>
 
                     <div class="page hidden-right" id="page-chat">
-                        <div class="nav-bar">
-                            <button class="nav-btn" id="btn-back">❮ 信息</button>
-                            <span class="nav-title" id="chat-title">用户</span>
+                        <div class="nav-bar ios-nav-detail">
+                            <button class="nav-btn back-btn" id="btn-back">
+                                <svg viewBox="0 0 24 24" width="24" height="24" stroke="#007AFF" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                                <span>信息</span>
+                            </button>
+                            <div class="nav-title-group">
+                                <div class="chat-avatar-placeholder"></div>
+                                <span class="nav-title-small" id="chat-title">用户</span>
+                            </div>
+                            <button class="nav-btn" style="visibility:hidden; width: 40px"></button>
                         </div>
                         <div class="chat-scroll-area" id="chat-messages-container">
                             </div>
                         <div class="input-area">
-                            <div class="plus-btn">+</div>
+                            <div class="plus-btn">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="#8e8e93"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+                            </div>
                             <input type="text" class="chat-input" placeholder="iMessage" id="msg-input">
                             <div class="send-btn" id="btn-send">
                                 <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
@@ -273,7 +291,12 @@
         const container = document.getElementById('contact-list-container');
         container.innerHTML = '';
         if (phoneState.contacts.length === 0) {
-            container.innerHTML = '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">暂无消息<br>等待正则捕获...</div>';
+            // 修改了这里的空状态 HTML
+            container.innerHTML = `
+                <div style="padding-top: 150px; text-align: center; color: #8e8e93;">
+                    <div style="font-size: 24px; margin-bottom: 8px;">无短信</div>
+                    <div style="font-size: 14px;">你可以通过右上角添加新对话</div>
+                </div>`;
             return;
         }
         phoneState.contacts.forEach(contact => {
