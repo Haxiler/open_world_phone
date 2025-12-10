@@ -1,11 +1,11 @@
 {
-    "display_name": "Open World Phone",
-    "name": "open_world_phone",
+    "display_name": "iOS Phone Mod",
+    "name": "st-ios-phone",
     "version": "1.0.0",
     "author": "User",
-    "description": "大世界手机系统：支持NPC主动联络、自动添加好友、双向短信通讯。",
-    "repo": "https://github.com/你的Github用户名/你的仓库名",
-    "js": "index.js",
-    "css": "style.css",
-    "loading_order": 100
+    "description": "Adds a draggable iOS-style phone interface.",
+    "repo": "",
+    "loading_order": 1,
+    "requires": [],
+    "js": "index.js"
 }
