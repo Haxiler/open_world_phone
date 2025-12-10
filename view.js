@@ -1,10 +1,10 @@
 // ==================================================================================
-// 模块: View (界面与交互) - v1.2 Time Sync Fixed
+// 模块: View (界面与交互) - v1.3 Shortcode Stickers
 // ==================================================================================
 (function() {
     if (document.getElementById('st-ios-phone-root')) return;
 
-    // 1. HTML 模板 (已修复：添加 status-bar-time)
+    // 1. HTML 模板 (保持 v1.2 的修复版，含 status-bar-time)
     const html = `
     <div id="st-ios-phone-root">
         <div id="st-phone-icon" title="打开/关闭手机">
@@ -121,14 +121,29 @@
     makeDraggable(document.getElementById("st-phone-window"), document.getElementById("phone-drag-handle"));
     makeDraggable(document.getElementById("st-phone-icon"), document.getElementById("st-phone-icon"));
 
-    // 3. 辅助：渲染消息
+    // 3. 辅助：渲染消息 (已升级：支持 [bqb-关键词] 解析)
     function renderMessageContent(text) {
-        const imgRegex = /!\[.*?\]\((.*?)\)/;
-        const match = text.match(imgRegex);
-        if (match) {
-            return `<img src="${match[1]}" alt="sticker" loading="lazy" />`;
-        }
-        return text;
+        // 核心正则：匹配 [bqb-任意内容]
+        const bqbRegex = /\[bqb-(.*?)\]/g;
+        
+        // 使用 replace 回调来动态替换
+        let html = text.replace(bqbRegex, (match, key) => {
+            // 在 config 里找对应的 url
+            const stickers = window.ST_PHONE.config.stickers || [];
+            const sticker = stickers.find(s => s.label === key);
+            
+            if (sticker) {
+                return `<img src="${sticker.url}" alt="${key}" class="sticker-img" loading="lazy" />`;
+            }
+            // 找不到对应关键词，就原样显示文本
+            return match;
+        });
+
+        // (可选) 依然保留对标准 Markdown 图片的支持，以防万一
+        const mdImgRegex = /!\[.*?\]\((.*?)\)/g;
+        html = html.replace(mdImgRegex, '<img src="$1" alt="sticker" loading="lazy" />');
+        
+        return html;
     }
 
     // 4. UI 导出
@@ -144,7 +159,6 @@
             return window.ST_PHONE.state.isPhoneOpen;
         },
 
-        // --- 新增：更新状态栏时间 ---
         updateStatusBarTime: function(timeStr) {
             const el = document.getElementById('status-bar-time');
             if (el && timeStr) {
@@ -268,12 +282,16 @@
                         const img = document.createElement('img');
                         img.src = s.url;
                         img.title = s.label;
+                        
+                        // --- 发送逻辑更新 ---
+                        // 点击表情时，只填入 [bqb-Label] 这种短代码
                         img.onclick = () => {
                             const input = document.getElementById('msg-input');
-                            input.value = `(表情: ${s.label}) ![${s.label}](${s.url})`;
+                            input.value = `[bqb-${s.label}]`;
                             document.getElementById('btn-send').click();
                             panel.classList.add('hidden');
                         };
+                        
                         container.appendChild(img);
                     });
                 }
