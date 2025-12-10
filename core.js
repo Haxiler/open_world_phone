@@ -3,16 +3,22 @@
 // ==================================================================================
 (function() {
     
+    // --- 辅助函数：获取系统时间 (格式：12月10日 18:30) ---
+    function getSystemTimeStr() {
+        const now = new Date();
+        const M = now.getMonth() + 1;
+        const D = now.getDate();
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        return `${M}月${D}日 ${h}:${m}`;
+    }
+
     // 状态管理
     window.ST_PHONE.state.lastUserSendTime = 0;
     window.ST_PHONE.state.pendingMsgText = null;
     window.ST_PHONE.state.pendingMsgTarget = null;
-
-    // --- 辅助函数 ---
-    function getCurrentTimeStr() {
-        const now = new Date();
-        return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    }
+    // 默认虚拟时间直接取当前系统时间，而不是写死的 "12:00"
+    window.ST_PHONE.state.virtualTime = getSystemTimeStr(); 
 
     // --- 核心：扫描聊天记录 ---
     const REGEX_XML_MSG = /<msg>(.+?)\|(.+?)\|(.+?)\|(.+?)<\/msg>/gi;
@@ -25,6 +31,7 @@
         if (!chat) return;
 
         const newContactsMap = new Map();
+        let lastCapturedTime = null; // 用于记录最后一条有效消息的时间
 
         // 1. 标准扫描 (构建真实历史)
         chat.forEach(msg => {
@@ -37,6 +44,9 @@
                 const receiver = match[2].trim();
                 const content = match[3].trim();
                 const timeStr = match[4].trim();
+
+                // 只要有时间，就更新（因为是从前往后扫，最后留下的就是最新的）
+                if (timeStr) lastCapturedTime = timeStr;
 
                 let contactName = '';
                 let isMyMessage = false;
@@ -66,51 +76,54 @@
                     isPending: false 
                 });
                 
+                // 如果消息里没有时间，就用系统时间兜底
                 contact.lastMsg = content;
-                contact.time = timeStr || getCurrentTimeStr();
+                contact.time = timeStr || getSystemTimeStr();
             });
         });
 
-        // 2. [保活逻辑升级：二重扫描]
-        // 不再依赖短时间倒计时，而是依赖“是否已同步”。
+        // --- 核心改动：同步剧情时间 ---
+        // 如果扫描到了时间，就更新虚拟时间；否则保持系统时间
+        if (lastCapturedTime) {
+            window.ST_PHONE.state.virtualTime = lastCapturedTime;
+        } 
+        
+        // 更新 UI 上的时间
+        if (window.ST_PHONE.ui.updateStatusBarTime) {
+            window.ST_PHONE.ui.updateStatusBarTime(window.ST_PHONE.state.virtualTime);
+        }
+
+        // 2. [保活逻辑：二重扫描]
         const pendingText = window.ST_PHONE.state.pendingMsgText;
         const pendingTarget = window.ST_PHONE.state.pendingMsgTarget;
         const now = Date.now();
 
         if (pendingText) {
-            // 确保联系人存在（如果是新对话，真实记录里可能还没这个联系人）
             if (!newContactsMap.has(pendingTarget)) {
                  newContactsMap.set(pendingTarget, {
                         id: pendingTarget,
                         name: pendingTarget,
                         lastMsg: '',
-                        time: getCurrentTimeStr(),
+                        time: window.ST_PHONE.state.virtualTime,
                         messages: []
                  });
             }
             const contact = newContactsMap.get(pendingTarget);
-
-            // 【关键修改】检查真实记录的最后几条，看是否包含我的 pending 内容
-            // 取最后5条防止并发时的顺序微差
             const recentRealMsgs = contact.messages.slice(-5);
             const isSynced = recentRealMsgs.some(m => m.text === pendingText && m.sender === 'user');
 
             if (isSynced) {
-                // A. 找到了！说明酒馆已经同步成功，清除保活状态
                 window.ST_PHONE.state.pendingMsgText = null;
                 window.ST_PHONE.state.pendingMsgTarget = null;
             } else {
-                // B. 没找到，说明还在路上（或者生成失败）
-                // 只有当时间超过 60秒（兜底），才认为是彻底丢包了，停止显示
                 if (now - window.ST_PHONE.state.lastUserSendTime < 60000) {
                     contact.messages.push({
                         sender: 'user',
                         text: pendingText,
-                        isPending: true // 保持半透明状态
+                        isPending: true 
                     });
-                    contact.lastMsg = pendingText; // 强制更新预览
+                    contact.lastMsg = pendingText; 
                 } else {
-                    // 超时，放弃治疗
                     window.ST_PHONE.state.pendingMsgText = null;
                 }
             }
@@ -122,7 +135,6 @@
         // 调用 View 更新 UI
         if (window.ST_PHONE.ui.renderContacts) {
             const searchInput = document.getElementById('phone-search-bar');
-            // 只有在没搜索时才自动刷新列表，防止打字干扰
             if (!searchInput || !searchInput.value) {
                 window.ST_PHONE.ui.renderContacts();
             }
@@ -134,7 +146,7 @@
         }
     }
 
-    // --- 核心：发送逻辑 ---
+    // --- 核心：发送逻辑 (使用剧情时间) ---
     function sendDraftToInput() {
         const input = document.getElementById('msg-input');
         const text = input.value.trim();
@@ -145,7 +157,10 @@
         let contact = window.ST_PHONE.state.contacts.find(c => c.id === activeId);
         const targetName = contact ? contact.name : activeId;
 
-        const xmlString = `<msg>{{user}}|${targetName}|${text}|${getCurrentTimeStr()}</msg>`;
+        // 使用当前顶栏显示的虚拟时间
+        const timeToSend = window.ST_PHONE.state.virtualTime;
+
+        const xmlString = `<msg>{{user}}|${targetName}|${text}|${timeToSend}</msg>`;
         const mainTextArea = document.querySelector('#send_textarea');
         
         if (mainTextArea) {
@@ -154,12 +169,10 @@
             mainTextArea.value = originalText + separator + xmlString;
             mainTextArea.dispatchEvent(new Event('input', { bubbles: true }));
             
-            // 记录保活状态
             window.ST_PHONE.state.lastUserSendTime = Date.now();
             window.ST_PHONE.state.pendingMsgText = text;
             window.ST_PHONE.state.pendingMsgTarget = targetName;
 
-            // 立即渲染（不等轮询）
             if (contact) {
                 contact.messages.push({
                     sender: 'user',
@@ -189,7 +202,6 @@
         });
     }
 
-    // 自动化轮询
     function initAutomation() {
         setInterval(() => {
             if (window.ST_PHONE.state.isPhoneOpen) {
@@ -207,7 +219,7 @@
     setTimeout(() => {
         initAutomation();
         scanChatHistory();
-        console.log('✅ ST-iOS-Phone: 逻辑核心已挂载 (保活增强版)');
+        console.log('✅ ST-iOS-Phone: 逻辑核心已挂载 (剧情时间同步版)');
     }, 1000);
 
 })();
