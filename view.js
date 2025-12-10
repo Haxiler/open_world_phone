@@ -1,10 +1,10 @@
 // ==================================================================================
-// 模块: View (界面与交互) - v1.8 Notification Support
+// 模块: View (界面与交互) - v2.0 Smart Scroll
 // ==================================================================================
 (function() {
     if (document.getElementById('st-ios-phone-root')) return;
 
-    // 1. HTML 模板 (增加了 st-notification-dot)
+    // 1. HTML 模板
     const html = `
     <div id="st-ios-phone-root">
         <div id="st-phone-icon" title="打开/关闭手机">
@@ -89,7 +89,7 @@
     div.innerHTML = html;
     document.body.appendChild(div);
 
-    // 2. 拖拽逻辑 (保持不变)
+    // 2. 拖拽逻辑
     function makeDraggable(element, handle) {
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
         handle.onmousedown = dragMouseDown;
@@ -135,7 +135,6 @@
 
     // 4. UI 导出
     window.ST_PHONE.ui = {
-        // 打开/关闭手机
         toggleWindow: function() {
             const windowEl = document.getElementById('st-phone-window');
             if (window.ST_PHONE.state.isDragging) {
@@ -145,25 +144,21 @@
             window.ST_PHONE.state.isPhoneOpen = !window.ST_PHONE.state.isPhoneOpen;
             windowEl.style.display = window.ST_PHONE.state.isPhoneOpen ? 'block' : 'none';
             
-            // 【新增】打开手机时，自动清除通知点
             if (window.ST_PHONE.state.isPhoneOpen) {
                 this.setNotification(false);
             }
             return window.ST_PHONE.state.isPhoneOpen;
         },
 
-        // 【新增】控制通知点显示
         setNotification: function(active) {
             const dot = document.getElementById('st-notification-dot');
             if (dot) dot.classList.toggle('active', active);
         },
 
-        // 【新增】播放提示音
         playNotificationSound: function() {
             if (window.ST_PHONE.path) {
-                // 尝试播放 notify.mp3 或 ding.mp3
                 const audio = new Audio(window.ST_PHONE.path + 'ding.mp3');
-                audio.volume = 0.6; // 音量适中
+                audio.volume = 0.6; 
                 audio.play().catch(e => console.log('声音播放被拦截或文件不存在', e));
             }
         },
@@ -198,9 +193,22 @@
             });
         },
         
-        // ... (其余 renderChat, openChat, closeChat 等方法保持原样) ...
-        renderChat: function(contact) {
+        // 【关键修改】renderChat: 增加 forceScroll 参数，实现智能滚动
+        renderChat: function(contact, forceScroll = false) {
             const container = document.getElementById('chat-messages-container');
+            
+            // A. 记录当前滚动状态
+            const threshold = 60; // 阈值：距离底部多少像素内算作“正在看最新消息”
+            const currentScrollTop = container.scrollTop;
+            const currentScrollHeight = container.scrollHeight;
+            const clientHeight = container.clientHeight;
+            
+            // 判断是否处于底部附近
+            const isNearBottom = (currentScrollHeight - currentScrollTop - clientHeight) <= threshold;
+            // 判断是否是初次渲染
+            const isFirstLoad = container.children.length === 0;
+
+            // B. 重绘 DOM
             container.innerHTML = '';
             container.appendChild(document.createElement('div')).style.height = '10px';
             contact.messages.forEach(msg => {
@@ -209,12 +217,25 @@
                 el.innerHTML = renderMessageContent(msg.text);
                 container.appendChild(el);
             });
-            setTimeout(() => container.scrollTop = container.scrollHeight, 0);
+
+            // C. 智能恢复滚动位置
+            setTimeout(() => {
+                const newHeight = container.scrollHeight;
+                
+                if (forceScroll || isNearBottom || isFirstLoad) {
+                    // 只有在这些情况下才强制滚到底部
+                    container.scrollTop = newHeight;
+                } else {
+                    // 否则，保持原来的阅读位置不动
+                    container.scrollTop = currentScrollTop;
+                }
+            }, 0);
         },
         openChat: function(contact) {
             window.ST_PHONE.state.activeContactId = contact.id;
             document.getElementById('chat-title').innerText = contact.name;
-            window.ST_PHONE.ui.renderChat(contact);
+            // 打开新聊天时，强制滚到底部 (true)
+            window.ST_PHONE.ui.renderChat(contact, true);
             document.getElementById('sticker-panel').classList.add('hidden');
             document.getElementById('page-contacts').classList.add('hidden-left');
             document.getElementById('page-contacts').classList.remove('active');
