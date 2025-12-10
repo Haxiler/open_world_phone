@@ -1,12 +1,12 @@
 // ==================================================================================
-// 脚本名称: ST-iOS-Phone-Core (Phase 3 Final - XML Protocol & Draft Mode)
+// 脚本名称: ST-iOS-Phone-Core (Phase 3 Final - XML Protocol & Interaction)
 // ==================================================================================
 
 (function () {
     // 1. 防止重复加载
     if (document.getElementById('st-ios-phone-root')) return;
 
-    console.log('📱 ST-iOS-Phone: Phase 3 (交互版) 启动中...');
+    console.log('📱 ST-iOS-Phone: 最终版启动中...');
 
     // ==================================================================================
     // HTML 结构
@@ -88,14 +88,14 @@
 
         const newContactsMap = new Map();
 
-        // 倒序遍历还是顺序遍历？顺序遍历符合时间轴
+        // 遍历聊天记录
         chat.forEach(msg => {
             if (!msg.mes) return;
             
             // 移除可能存在的 Markdown 代码块标记
             const cleanMsg = msg.mes.replace(/```/g, ''); 
             
-            // 使用 matchAll 捕获所有标签（防止一条消息里有多条短信）
+            // 使用 matchAll 捕获所有标签
             const matches = [...cleanMsg.matchAll(REGEX_XML_MSG)];
 
             matches.forEach(match => {
@@ -108,20 +108,15 @@
                 let contactName = '';
                 let isMyMessage = false;
 
-                // 判断逻辑：如果发送人是 {{user}} (不区分大小写)，那这就是发给“接收人”的消息
+                // 如果发送人是 {{user}} 或 "你"，那就是我发给别人的
                 if (sender.toLowerCase().includes('{{user}}') || sender === '你' || sender.toLowerCase() === 'user') {
                     contactName = receiver; // 联系人是对方
                     isMyMessage = true;
                 } else {
-                    // 否则，这通常是对方发给我的，或者对方发给别人的
-                    // 只有当接收人是 {{user}}，或者是群聊时，我们才显示
-                    // 为了简化，我们假设所有非User发的都归档到Sender名下
+                    // 否则是别人发给我的
                     contactName = sender;
                     isMyMessage = false;
                 }
-
-                // 过滤：如果你希望只显示发给 {{user}} 的，可以在这里加判断
-                // 目前逻辑：只要正文里有 <msg>，就提取进手机
 
                 if (!newContactsMap.has(contactName)) {
                     newContactsMap.set(contactName, {
@@ -171,32 +166,18 @@
         // 格式: <msg>{{user}}|接收人|内容|时间</msg>
         const xmlString = `<msg>{{user}}|${targetName}|${text}|${getCurrentTimeStr()}</msg>`;
 
-        // 3. 寻找酒馆主输入框
-        // 通常 ID 是 send_textarea
+        // 3. 寻找酒馆主输入框并追加内容
         const mainTextArea = document.querySelector('#send_textarea');
         
         if (mainTextArea) {
-            // 获取当前光标位置或直接追加到末尾
             const originalText = mainTextArea.value;
-            // 如果输入框不为空，先换行
             const separator = originalText.length > 0 ? '\n' : '';
-            
-            // 赋值
             mainTextArea.value = originalText + separator + xmlString;
-            
-            // 触发 input 事件，让酒馆知道内容变了（调整高度、激活发送键等）
             mainTextArea.dispatchEvent(new Event('input', { bubbles: true }));
             
-            // 给予视觉反馈 (清空手机输入框)
+            // 清空手机输入框并聚焦主输入框
             input.value = '';
-            
-            // 可以在这里做一个小的提示动画，或者把焦点移回主输入框
             mainTextArea.focus();
-            
-            // 乐观更新：虽然还没发送，但先假装显示在手机里，体验更好？
-            // 既然是草稿模式，还没发送就不应该显示在手机历史里，
-            // 只有当用户点了酒馆发送，AI处理完或者正则脚本生效后，轮询扫到了才会显示。
-            // 所以这里不做本地 push。
         } else {
             alert('❌ 找不到酒馆主输入框 (#send_textarea)');
         }
@@ -206,52 +187,88 @@
     function initAutomation() {
         // 1. 启动心跳轮询 (每2秒)
         setInterval(() => {
-            // 只有当手机窗口打开时才扫描，节省性能
             if (isPhoneOpen) {
                 scanChatHistory();
             }
         }, 2000);
 
-        // 2. 备用：尝试注册 jQuery 事件 (如果环境允许)
+        // 2. 备用：尝试注册 jQuery 事件
         if (typeof jQuery !== 'undefined') {
             jQuery(document).on('generation_ended', () => {
-                // AI 生成完毕，无论手机开没开，稍微延时后扫一次，保证红点逻辑未来可用
                 setTimeout(scanChatHistory, 1000); 
             });
         }
     }
 
     // ==================================================================================
-    // UI 交互
+    // UI 交互 (含防误触修复)
     // ==================================================================================
     
-    // 拖拽 (保持不变)
+    // 🚩 全局标记：是否正在拖拽
+    let isDragging = false;
+
+    // 拖拽逻辑
     function makeDraggable(element, handle) {
         let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
         handle.onmousedown = dragMouseDown;
-        function dragMouseDown(e) { e.preventDefault(); pos3 = e.clientX; pos4 = e.clientY; document.onmouseup = closeDragElement; document.onmousemove = elementDrag; }
-        function elementDrag(e) { e.preventDefault(); pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY; pos3 = e.clientX; pos4 = e.clientY; element.style.top = (element.offsetTop - pos2) + "px"; element.style.left = (element.offsetLeft - pos1) + "px"; }
-        function closeDragElement() { document.onmouseup = null; document.onmousemove = null; }
+
+        function dragMouseDown(e) {
+            e.preventDefault();
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            
+            // 按下瞬间，先假设不是拖拽
+            isDragging = false; 
+            
+            document.onmouseup = closeDragElement;
+            document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+            e.preventDefault();
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+            
+            // 只要发生了移动，就是拖拽
+            isDragging = true;
+
+            element.style.top = (element.offsetTop - pos2) + "px";
+            element.style.left = (element.offsetLeft - pos1) + "px";
+        }
+
+        function closeDragElement() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+            // 注意：不要在这里重置 isDragging，因为 click 事件紧接着触发
+        }
     }
+    
+    // 初始化拖拽
     makeDraggable(document.getElementById("st-phone-window"), document.getElementById("phone-drag-handle"));
     makeDraggable(document.getElementById("st-phone-icon"), document.getElementById("st-phone-icon"));
 
-    // 显隐切换 + 立即刷新
+    // 显隐切换 + 立即刷新 + 防误触
     const icon = document.getElementById('st-phone-icon');
     const windowEl = document.getElementById('st-phone-window');
 
     icon.addEventListener('click', () => {
+        // 🚩 修复：如果刚刚发生了拖拽，则视为移动操作，直接返回
+        if (isDragging) {
+            isDragging = false; // 重置状态
+            return;
+        }
+
         isPhoneOpen = !isPhoneOpen;
         windowEl.style.display = isPhoneOpen ? 'block' : 'none';
         
         if (isPhoneOpen) {
-            // 开屏瞬间立即扫描
-            scanChatHistory();
-            // 让列表滚回顶部或保持原位
+            scanChatHistory(); // 开屏立即扫描
         }
     });
 
-    // 渲染函数
+    // 渲染联系人
     function renderContacts() {
         const container = document.getElementById('contact-list-container');
         container.innerHTML = '';
@@ -259,7 +276,6 @@
             container.innerHTML = '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">暂无消息<br>等待正则捕获...</div>';
             return;
         }
-        // 按时间倒序排列联系人（最新消息的在上面）- 暂不实现复杂排序，按扫描顺序
         phoneState.contacts.forEach(contact => {
             const el = document.createElement('div');
             el.className = 'contact-item';
@@ -277,6 +293,7 @@
         });
     }
 
+    // 渲染聊天
     function renderChat(contact) {
         const container = document.getElementById('chat-messages-container');
         container.innerHTML = '';
@@ -290,6 +307,7 @@
         setTimeout(() => container.scrollTop = container.scrollHeight, 0);
     }
 
+    // 页面导航
     function openChat(contact) {
         activeContactId = contact.id;
         document.getElementById('chat-title').innerText = contact.name;
@@ -308,10 +326,8 @@
         document.getElementById('page-chat').classList.remove('active');
     }
 
-    // 绑定按钮事件
+    // 绑定基础事件
     document.getElementById('btn-back').onclick = closeChat;
-    
-    // 手动刷新 (保留作为备用)
     document.getElementById('btn-reload-data').onclick = () => { 
         scanChatHistory(); 
         const btn = document.getElementById('btn-reload-data'); 
@@ -319,10 +335,8 @@
         setTimeout(()=> btn.style.transform = 'none', 500); 
     };
 
-    // 发送按钮 -> 触发 Draft 逻辑
+    // 发送事件 -> Draft
     document.getElementById('btn-send').onclick = sendDraftToInput;
-    
-    // 输入框回车发送
     document.getElementById('msg-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendDraftToInput();
     });
@@ -333,7 +347,7 @@
     setTimeout(() => {
         initAutomation();
         scanChatHistory();
-        console.log('✅ ST-iOS-Phone: Phase 3 Ready (XML Protocol)');
+        console.log('✅ ST-iOS-Phone: Phase 3 Ready (防误触优化版)');
     }, 2000);
 
 })();
