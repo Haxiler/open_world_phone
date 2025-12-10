@@ -388,42 +388,70 @@
 
 /* --- 莫兰迪黄绿渐变+光效发送键 --- */
 .send-btn {
-    width: 34px; /* 稍微大一圈 */
+    width: 34px;
     height: 34px;
-    border-radius: 50%; /* 纯圆 */
+    border-radius: 50%; /* 绝对正圆 */
     
-    /* 莫兰迪黄绿渐变 (Morandi Yellow-Green) */
-    /* 从柔和的鹅黄绿渐变到稍深的橄榄绿 */
-    background: linear-gradient(135deg, #F0F9A7 10%, #C8E6C9 100%);
-    
-    /* 光效 (Glow) */
-    /* 外阴影：弥散光 | 内阴影：玻璃高光 */
-    box-shadow: 
-        0 4px 10px rgba(180, 210, 160, 0.5), 
-        inset 0 1px 1px rgba(255, 255, 255, 0.8);
+    background-color: #007AFF; /* 纯正 iOS 蓝 */
     
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: transform 0.1s, box-shadow 0.2s;
+    transition: transform 0.1s, background-color 0.2s;
+    
+    /* 移除之前的 box-shadow 光效，保持扁平干净 */
+    box-shadow: none; 
+}
+
+.send-btn:hover {
+    background-color: #006ce6; /* 稍微深一点的 hover 态 */
+}
+
+.send-btn:active { 
+    transform: scale(0.92); 
 }
 
 .send-btn svg { 
-    width: 16px; 
-    height: 16px; 
-    fill: #5A6A55; /* 图标换成深色莫兰迪绿，对比度更好看 */
-    margin-left: 2px; /* 视觉修正 */
+    width: 18px; 
+    height: 18px; 
+    fill: white; 
+    
+    /* 【关键】移除之前的 margin-left: 2px。
+       Flex 布局下，margin 会导致图标偏离中心。
+       现在是绝对居中。
+    */
+    margin: 0; 
+    
+    /* 微调：有时候 svg 视觉重心本身不准，可以用 translate 修正 */
+    transform: translateX(-1px) translateY(1px); 
 }
 
-/* 按下时的微动效 */
-.send-btn:active { 
-    transform: scale(0.92); 
-    box-shadow: 0 2px 5px rgba(180, 210, 160, 0.5);
+/* =========================================
+   新消息提示点 (Light Gray Dot)
+   ========================================= */
+.notification-dot {
+    position: absolute;
+    top: -4px;  
+    right: -4px;
+    width: 14px;
+    height: 14px;
+    
+    background-color: #E5E5EA; /* 亮灰色 */
+    border: 2px solid #333; /* 适配底色的描边 */
+    
+    border-radius: 50%;
+    z-index: 99999; /* 【关键】层级拉满，防止被其他元素遮挡 */
+    
+    display: none;
+    transform: scale(0);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-::-webkit-scrollbar { width: 0px; }
-
+.notification-dot.active {
+    display: block;
+    transform: scale(1);
+}
 /* =========================================
    表情包面板 (Stickers)
    ========================================= */
@@ -466,25 +494,6 @@
     transform: scale(0.9);
     background: #d1d1d6;
 }
-/* =========================================
-   新消息提示点 (Light Gray Dot)
-   ========================================= */
-.notification-dot {
-    position: absolute;
-    top: -3px;  /* 稍微突出一带点 */
-    right: -3px;
-    width: 14px;
-    height: 14px;
-    
-    /* 高级亮灰色 */
-    background-color: #E5E5EA; 
-    
-    /* 深色描边，模拟镂空效果，增加层次感 */
-    border: 3px solid #333; 
-    
-    border-radius: 50%;
-    z-index: 10000;
-    
     /* 默认隐藏，有消息时显示 */
     display: none;
     transform: scale(0);
