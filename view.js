@@ -1,10 +1,10 @@
 // ==================================================================================
-// 模块: View (界面与交互) - v1.3 Shortcode Stickers
+// 模块: View (界面与交互) - v1.7 UI Polish
 // ==================================================================================
 (function() {
     if (document.getElementById('st-ios-phone-root')) return;
 
-    // 1. HTML 模板 (保持 v1.2 的修复版，含 status-bar-time)
+    // 1. HTML 模板
     const html = `
     <div id="st-ios-phone-root">
         <div id="st-phone-icon" title="打开/关闭手机">
@@ -22,14 +22,17 @@
                     
                     <div class="page active" id="page-contacts">
                         <div class="nav-bar ios-nav">
+                            <div style="width: 40px;"></div>
+                            
                             <span class="nav-title">信息</span>
+                            
                             <button class="nav-btn icon" id="btn-add-friend" title="新对话">
                                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#007AFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                             </button>
                         </div>
                         <div class="ios-search-bar">
                             <div class="search-input">
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="#8e8e93"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="#8e8e93"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="#8e8e93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 <input type="text" id="phone-search-bar" placeholder="搜索">
                             </div>
                         </div>
@@ -121,28 +124,19 @@
     makeDraggable(document.getElementById("st-phone-window"), document.getElementById("phone-drag-handle"));
     makeDraggable(document.getElementById("st-phone-icon"), document.getElementById("st-phone-icon"));
 
-    // 3. 辅助：渲染消息 (已升级：支持 [bqb-关键词] 解析)
+    // 3. 辅助：渲染消息
     function renderMessageContent(text) {
-        // 核心正则：匹配 [bqb-任意内容]
         const bqbRegex = /\[bqb-(.*?)\]/g;
-        
-        // 使用 replace 回调来动态替换
         let html = text.replace(bqbRegex, (match, key) => {
-            // 在 config 里找对应的 url
             const stickers = window.ST_PHONE.config.stickers || [];
             const sticker = stickers.find(s => s.label === key);
-            
             if (sticker) {
                 return `<img src="${sticker.url}" alt="${key}" class="sticker-img" loading="lazy" />`;
             }
-            // 找不到对应关键词，就原样显示文本
             return match;
         });
-
-        // (可选) 依然保留对标准 Markdown 图片的支持，以防万一
         const mdImgRegex = /!\[.*?\]\((.*?)\)/g;
         html = html.replace(mdImgRegex, '<img src="$1" alt="sticker" loading="lazy" />');
-        
         return html;
     }
 
@@ -282,16 +276,12 @@
                         const img = document.createElement('img');
                         img.src = s.url;
                         img.title = s.label;
-                        
-                        // --- 发送逻辑更新 ---
-                        // 点击表情时，只填入 [bqb-Label] 这种短代码
                         img.onclick = () => {
                             const input = document.getElementById('msg-input');
                             input.value = `[bqb-${s.label}]`;
                             document.getElementById('btn-send').click();
                             panel.classList.add('hidden');
                         };
-                        
                         container.appendChild(img);
                     });
                 }
