@@ -1,5 +1,5 @@
 // ==================================================================================
-// 模块: Core (核心逻辑 - v2.3 Timestamp Support & Anti-Parrot)
+// 模块: Core (核心逻辑 - v2.4 Sort & Unread & Manual Send)
 // ==================================================================================
 (function() {
     
@@ -13,32 +13,31 @@
         return `${M}月${D}日 ${h}:${m}`;
     }
 
-    // 【新增】解析时间字符串为 Date 对象
-    // 支持格式: "10月23日 10:30" 或 简单的 "10:30" (如果是后者，日期默认今天)
+    // 解析时间字符串为 Date 对象
     function parseTimeStr(str) {
         if (!str) return new Date();
         const now = new Date();
         let year = now.getFullYear();
         
-        // 尝试匹配 "X月X日 XX:XX"
         const fullMatch = str.match(/(\d+)月(\d+)日\s*(\d+)[:：](\d+)/);
         if (fullMatch) {
             return new Date(year, parseInt(fullMatch[1]) - 1, parseInt(fullMatch[2]), parseInt(fullMatch[3]), parseInt(fullMatch[4]));
         }
         
-        // 尝试匹配仅时间 "XX:XX"
         const timeMatch = str.match(/(\d+)[:：](\d+)/);
         if (timeMatch) {
             return new Date(year, now.getMonth(), now.getDate(), parseInt(timeMatch[1]), parseInt(timeMatch[2]));
         }
 
-        return now; // 解析失败兜底
+        return now;
     }
 
     // 初始化状态
     window.ST_PHONE.state.lastUserSendTime = 0;
     window.ST_PHONE.state.pendingQueue = []; 
     window.ST_PHONE.state.virtualTime = getSystemTimeStr(); 
+    // 【新增】未读消息ID集合
+    window.ST_PHONE.state.unreadIds = window.ST_PHONE.state.unreadIds || new Set();
 
     // 缓存系统
     let lastChatFingerprint = ''; 
@@ -75,6 +74,9 @@
         let currentXmlMsgCount = 0;
         let lastParsedSmsWasMine = false;
 
+        // 无论指纹是否变化，先进行全量解析的逻辑准备（实际解析在指纹变化时做）
+        // 这里为了简化逻辑，沿用原结构
+        
         if (currentFingerprint !== lastChatFingerprint) {
             lastChatFingerprint = currentFingerprint;
             
@@ -99,7 +101,6 @@
             lastChatLength = chat.length;
 
             // B. 全量解析
-            const currentUserPersona = context.name1 ? context.name1.trim() : null;
             let newContactsMap = new Map();
 
             chat.forEach(msg => {
@@ -120,11 +121,8 @@
 
                     if (msgTimeStr && !latestNarrativeTime) latestNarrativeTime = msgTimeStr;
 
-                    // 最终确定的显示时间字符串
                     const finalTimeStr = msgTimeStr || latestNarrativeTime || getSystemTimeStr();
-                    // 【新增】解析为对象，用于后续计算
                     const parsedDate = parseTimeStr(finalTimeStr);
-                    // 提取日期部分 "10月23日" 用于判断跨天
                     const datePartMatch = finalTimeStr.match(/(\d+月\d+日)/);
                     const dateStr = datePartMatch ? datePartMatch[1] : '';
 
@@ -149,33 +147,23 @@
                             name: contactName,
                             lastMsg: '',
                             time: '', 
-                            messages: []
+                            messages: [],
+                            // 初始化时间戳，用于排序
+                            lastTimestamp: 0
                         });
                     }
                     const contact = newContactsMap.get(contactName);
 
-                    // ============================================================
-                    // 【修复】防复读去重逻辑 (Anti-Parrot Logic)
-                    // ============================================================
-                    // 获取该联系人历史记录里的最后一条消息
+                    // 防复读
                     const lastMsgInHistory = contact.messages[contact.messages.length - 1];
-                    
-                    // 判断条件：
-                    // 1. 当前准备入库的消息是用户发的 (isMyMessage)
-                    // 2. 且 历史记录里确实有上一条消息
-                    // 3. 且 上一条消息也是用户发的
-                    // 4. 且 内容完全一致
                     if (isMyMessage && lastMsgInHistory && lastMsgInHistory.sender === 'user' && lastMsgInHistory.text === content) {
-                        // 满足以上所有条件，判定为 AI 复读，直接跳过，不添加到列表里
                         return; 
                     }
-                    // ============================================================
 
                     contact.messages.push({
                         sender: isMyMessage ? 'user' : 'char',
                         text: content,
                         isPending: false,
-                        // 【新增】存储时间元数据
                         timeStr: finalTimeStr,
                         timestamp: parsedDate.getTime(),
                         dateStr: dateStr
@@ -183,7 +171,31 @@
                     
                     contact.lastMsg = content;
                     contact.time = finalTimeStr;
+                    // 更新联系人最后活跃时间
+                    contact.lastTimestamp = parsedDate.getTime();
                 });
+            });
+
+            // --- 【新增】未读消息检测 ---
+            // 遍历新的联系人列表
+            newContactsMap.forEach((contact, id) => {
+                const oldContact = cachedContactsMap.get(id);
+                const lastMsgObj = contact.messages[contact.messages.length - 1];
+                
+                // 如果是新出现的联系人，或者消息数量增加了，或者最后一条消息变了
+                if (!oldContact || contact.messages.length > oldContact.messages.length || contact.lastMsg !== oldContact.lastMsg) {
+                    // 只有当最后一条消息是对方发的 (char)，且当前没有打开该聊天窗口
+                    if (lastMsgObj && lastMsgObj.sender === 'char') {
+                        if (window.ST_PHONE.state.activeContactId !== id) {
+                            window.ST_PHONE.state.unreadIds.add(id);
+                        }
+                    }
+                }
+                
+                // 如果最后一条是我发的，肯定已读，清除未读标记（防止逻辑错误）
+                if (lastMsgObj && lastMsgObj.sender === 'user') {
+                    window.ST_PHONE.state.unreadIds.delete(id);
+                }
             });
 
             cachedContactsMap = newContactsMap;
@@ -191,7 +203,7 @@
 
             if (latestNarrativeTime) window.ST_PHONE.state.virtualTime = latestNarrativeTime;
 
-            // C. 通知判定
+            // C. 通知判定 (声音通知)
             if (lastXmlMsgCount === -1) {
                 lastXmlMsgCount = currentXmlMsgCount;
             } else {
@@ -212,7 +224,7 @@
         // --- 4. Pending 消息渲染 ---
         const queue = window.ST_PHONE.state.pendingQueue;
         const now = Date.now();
-        const MAX_PENDING_TIME = 600000; // 10分钟
+        const MAX_PENDING_TIME = 600000; 
 
         if (queue.length > 0) {
             let modifiedContactIds = new Set();
@@ -221,13 +233,16 @@
 
             activeQueue.forEach(pMsg => {
                 let contact = displayContactsMap.get(pMsg.target);
+                // 只有当该联系人尚未在 Pending 循环中被克隆过，才进行浅拷贝
+                // 如果已经存在于 map 中，需要确保我们在修改一个新的引用，不影响 cachedContactsMap
                 if (!contact) {
                     contact = {
                         id: pMsg.target,
                         name: pMsg.target,
                         lastMsg: '',
                         time: window.ST_PHONE.state.virtualTime,
-                        messages: []
+                        messages: [],
+                        lastTimestamp: Date.now() 
                     };
                     displayContactsMap.set(pMsg.target, contact);
                     modifiedContactIds.add(pMsg.target);
@@ -239,22 +254,23 @@
                     }
                 }
                 
-                // 【新增】Pending 消息的时间处理
-                // 因为是刚发的，直接用当前时间
                 const pendingTimeStr = window.ST_PHONE.state.virtualTime;
-                const pendingDate = parseTimeStr(pendingTimeStr); // 也要解析，为了保持格式一致
+                const pendingDate = parseTimeStr(pendingTimeStr);
                 const datePartMatch = pendingTimeStr.match(/(\d+月\d+日)/);
 
                 contact.messages.push({
                     sender: 'user',
                     text: pMsg.text,
                     isPending: true,
-                    // 补全元数据
                     timeStr: pendingTimeStr,
                     timestamp: pendingDate.getTime(), 
                     dateStr: datePartMatch ? datePartMatch[1] : ''
                 });
                 contact.lastMsg = pMsg.text;
+                // Pending 消息也是最新消息，更新排序时间
+                contact.lastTimestamp = pendingDate.getTime();
+                // 我发的消息，清除未读
+                window.ST_PHONE.state.unreadIds.delete(pMsg.target);
             });
         }
 
@@ -262,7 +278,18 @@
             window.ST_PHONE.ui.updateStatusBarTime(window.ST_PHONE.state.virtualTime);
         }
 
-        window.ST_PHONE.state.contacts = Array.from(displayContactsMap.values());
+        // --- 【新增】排序与未读标记注入 ---
+        let contactList = Array.from(displayContactsMap.values());
+        
+        // 1. 注入 hasUnread 属性供 View 使用
+        contactList.forEach(c => {
+            c.hasUnread = window.ST_PHONE.state.unreadIds.has(c.id);
+        });
+
+        // 2. 排序：时间倒序
+        contactList.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+
+        window.ST_PHONE.state.contacts = contactList;
         
         if (window.ST_PHONE.ui.renderContacts) {
             const searchInput = document.getElementById('phone-search-bar');
@@ -271,6 +298,11 @@
             }
             if (window.ST_PHONE.state.activeContactId) {
                 const currentContact = window.ST_PHONE.state.contacts.find(c => c.id === window.ST_PHONE.state.activeContactId);
+                // 已经在看这个联系人了，清除未读
+                if (window.ST_PHONE.state.unreadIds.has(window.ST_PHONE.state.activeContactId)) {
+                    window.ST_PHONE.state.unreadIds.delete(window.ST_PHONE.state.activeContactId);
+                    if (currentContact) currentContact.hasUnread = false; // 实时更新对象状态
+                }
                 if (currentContact) window.ST_PHONE.ui.renderChat(currentContact, false);
             }
         }
@@ -292,14 +324,15 @@
         
         if (mainTextArea) {
             const originalText = mainTextArea.value;
-            // 确保如果有旧内容，先换行；注入xml后，再自动加一个换行(\n)方便下一条
             const prefix = originalText.length > 0 ? '\n' : '';
             
-            // 【关键修改】末尾加上 '\n'
-            mainTextArea.value = originalText + prefix + xmlString + '\n'; 
+            // 【关键修改】去掉末尾的 '\n'，防止酒馆自动发送
+            // 现在的逻辑是：注入文本 -> 用户自己点酒馆的发送
+            mainTextArea.value = originalText + prefix + xmlString; 
             
             mainTextArea.dispatchEvent(new Event('input', { bubbles: true }));
             
+            // 依然加入 Pending 队列，让手机界面立刻显示消息气泡（假装已发）
             window.ST_PHONE.state.pendingQueue.push({
                 text: text,
                 target: targetName,
@@ -309,7 +342,10 @@
             setTimeout(scanChatHistory, 50);
 
             input.value = '';
-            mainTextArea.focus();
+            // 不聚焦主输入框，保持在手机上，或者看用户习惯。
+            // 如果必须手动发送，最好聚焦主输入框提示用户？
+            // 既然是 Draft，还是聚焦主输入框方便用户按回车
+            mainTextArea.focus(); 
         } else {
             alert('❌ 找不到酒馆主输入框 (#send_textarea)');
         }
@@ -318,12 +354,7 @@
     document.addEventListener('st-phone-opened', () => { scanChatHistory(); });
     const sendBtn = document.getElementById('btn-send');
     if(sendBtn) sendBtn.onclick = sendDraftToInput;
-    const msgInput = document.getElementById('msg-input');
-    if(msgInput) {
-        msgInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendDraftToInput();
-        });
-    }
+    // 这里保持 view.js 处理 Shift+Enter 逻辑，核心只管怎么发出去
     
     function initAutomation() {
         setInterval(() => {
@@ -338,7 +369,7 @@
     setTimeout(() => {
         initAutomation();
         scanChatHistory();
-        console.log('✅ ST-iOS-Phone: 逻辑核心已挂载 (v2.3 Timestamp Support)');
+        console.log('✅ ST-iOS-Phone: 逻辑核心已挂载 (v2.4 Sorted & Unread)');
     }, 1000);
 
 })();
