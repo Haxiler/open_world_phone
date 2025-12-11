@@ -63,7 +63,7 @@
                             <div class="plus-btn" id="btn-toggle-stickers">
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="#8e8e93"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
                             </div>
-                            <input type="text" class="chat-input" placeholder="iMessage" id="msg-input">
+                            <textarea class="chat-input" placeholder="iMessage" id="msg-input" rows="1"></textarea>
                             <div class="send-btn" id="btn-send">
                                 <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                             </div>
@@ -114,17 +114,37 @@
 
     // 3. 辅助：渲染消息
     function renderMessageContent(text) {
-        const bqbRegex = /\[bqb-(.*?)\]/g;
-        let html = text.replace(bqbRegex, (match, key) => {
-            const stickers = window.ST_PHONE.config.stickers || [];
-            const sticker = stickers.find(s => s.label === key);
-            if (sticker) return `<img src="${sticker.url}" alt="${key}" class="sticker-img" loading="lazy" />`;
-            return match;
-        });
-        const mdImgRegex = /!\[.*?\]\((.*?)\)/g;
-        html = html.replace(mdImgRegex, '<img src="$1" alt="sticker" loading="lazy" />');
-        return html;
-    }
+    // 1. 核心逻辑：只匹配 [bqb-数字] 格式
+    const bqbRegex = /\[bqb-(\d+)\]/g; 
+    
+    let html = text.replace(bqbRegex, (match, indexStr) => {
+        const index = parseInt(indexStr);
+        const stickers = window.ST_PHONE.config.stickers || [];
+        
+        // 通过数字索引直接取图
+        const sticker = stickers[index]; 
+        
+        if (sticker) {
+             // 找到图片：渲染它
+             // 这里的 alt 属性依然保留原标签名，方便鼠标悬停时查看含义
+             return `<img src="${sticker.url}" alt="${sticker.label || indexStr}" class="sticker-img" loading="lazy" />`;
+        }
+        
+        // 没找到图片（比如索引越界）：返回空字符串，实现“静默失败”
+        return ''; 
+    });
+
+    // 2. 清理逻辑：清除所有如果不小心生造出来的非数字标签（如 [bqb-哈哈]）
+    // 这是一道双重保险
+    const invalidBqbRegex = /\[bqb-([^\]\d]+)\]/g;
+    html = html.replace(invalidBqbRegex, '');
+    
+    // 3. 处理 Markdown 图片（保持原样）
+    const mdImgRegex = /!\[.*?\]\((.*?)\)/g;
+    html = html.replace(mdImgRegex, '<img src="$1" alt="sticker" loading="lazy" />');
+    
+    return html;
+}
 
     // 4. UI 导出
     window.ST_PHONE.ui = {
@@ -304,16 +324,22 @@
             const panel = document.getElementById('sticker-panel');
             const container = document.getElementById('sticker-grid-container');
             const isHidden = panel.classList.contains('hidden');
+            
             if (isHidden) {
+                // 如果是第一次打开，生成表情网格
                 if (container.children.length === 0) {
                     const stickers = window.ST_PHONE.config.stickers || [];
-                    stickers.forEach(s => {
+                    
+                    // 【关键修改点 1】forEach 中加入 index 参数
+                    stickers.forEach((s, index) => {
                         const img = document.createElement('img');
                         img.src = s.url;
-                        img.title = s.label;
+                        img.title = s.label; // 鼠标悬停依然显示中文含义
+                        
                         img.onclick = () => {
                             const input = document.getElementById('msg-input');
-                            input.value = `[bqb-${s.label}]`;
+                            // 【关键修改点 2】发送时填入 [bqb-数字] 而不是 [bqb-中文]
+                            input.value = `[bqb-${index}]`; 
                             document.getElementById('btn-send').click();
                             panel.classList.add('hidden');
                         };
