@@ -1,5 +1,5 @@
 // ==================================================================================
-// 模块: View (界面与交互) - v2.2 Unread UI
+// 模块: View (界面与交互) - v2.3 Event Fix & Unread
 // ==================================================================================
 (function() {
     if (document.getElementById('st-ios-phone-root')) return;
@@ -179,7 +179,7 @@
                 const el = document.createElement('div');
                 el.className = 'contact-item';
                 
-                // 【新增】未读蓝点渲染
+                // 未读蓝点渲染
                 const unreadDot = contact.hasUnread ? `<div class="unread-dot-indicator"></div>` : '';
 
                 el.innerHTML = `
@@ -256,14 +256,10 @@
         openChat: function(contact) {
             window.ST_PHONE.state.activeContactId = contact.id;
             
-            // 【新增】打开聊天时，清除未读状态
+            // 打开聊天时，清除该联系人的未读状态
             if (window.ST_PHONE.state.unreadIds) {
                 window.ST_PHONE.state.unreadIds.delete(contact.id);
             }
-            // 重新渲染联系人列表以去掉蓝点（可选，但体验更好）
-            // 由于 core.js 会定时刷新，这里也可以不立即刷新，但为了及时反馈还是加上
-            // 只是为了不重绘整个列表导致闪烁，我们可以手动移除 DOM 中的蓝点，
-            // 或者简单地再次调用 renderContacts。鉴于性能开销不大，直接调用：
             window.ST_PHONE.ui.renderContacts();
 
             document.getElementById('chat-title').innerText = contact.name;
@@ -280,7 +276,6 @@
             document.getElementById('page-contacts').classList.add('active');
             document.getElementById('page-chat').classList.add('hidden-right');
             document.getElementById('page-chat').classList.remove('active');
-            // 关闭聊天时，可能刚才发了消息，刷新一下列表
             window.ST_PHONE.ui.renderContacts();
         },
         toggleNewMsgSheet: function(show) {
@@ -373,13 +368,21 @@
     });
     document.getElementById('btn-toggle-stickers').onclick = window.ST_PHONE.ui.toggleStickerPanel;
 
+    // ============================================================
+    // 【核心修复】输入框按键逻辑 (支持 Shift+Enter 换行，阻止自动发送)
+    // ============================================================
     const msgInput = document.getElementById('msg-input');
     if(msgInput) {
         msgInput.addEventListener('keydown', (e) => { 
+            // 【关键】阻止事件冒泡到酒馆主界面，防止触发酒馆的快捷键（如 Enter 发送）
+            e.stopPropagation();
+
             if (e.key === 'Enter') {
                 if (e.shiftKey) {
+                    // Shift+Enter: 允许浏览器默认换行行为
                     return;
                 } else {
+                    // Enter Only: 阻止默认换行，执行发送
                     e.preventDefault();
                     if (e.target.value.trim()) {
                         document.getElementById('btn-send').click(); 
