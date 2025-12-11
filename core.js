@@ -1,5 +1,5 @@
 // ==================================================================================
-// 模块: Core (核心逻辑 - v2.3 Timestamp Support)
+// 模块: Core (核心逻辑 - v2.3 Timestamp Support & Anti-Parrot)
 // ==================================================================================
 (function() {
     
@@ -153,6 +153,23 @@
                         });
                     }
                     const contact = newContactsMap.get(contactName);
+
+                    // ============================================================
+                    // 【修复】防复读去重逻辑 (Anti-Parrot Logic)
+                    // ============================================================
+                    // 获取该联系人历史记录里的最后一条消息
+                    const lastMsgInHistory = contact.messages[contact.messages.length - 1];
+                    
+                    // 判断条件：
+                    // 1. 当前准备入库的消息是用户发的 (isMyMessage)
+                    // 2. 且 历史记录里确实有上一条消息
+                    // 3. 且 上一条消息也是用户发的
+                    // 4. 且 内容完全一致
+                    if (isMyMessage && lastMsgInHistory && lastMsgInHistory.sender === 'user' && lastMsgInHistory.text === content) {
+                        // 满足以上所有条件，判定为 AI 复读，直接跳过，不添加到列表里
+                        return; 
+                    }
+                    // ============================================================
 
                     contact.messages.push({
                         sender: isMyMessage ? 'user' : 'char',
