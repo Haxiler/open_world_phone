@@ -510,3 +510,17 @@
     display: block;
     transform: scale(1);
 }
+
+/* =========================================
+   时间戳 (Timestamp) - v2.0 New Feature
+   ========================================= */
+.chat-timestamp {
+    text-align: center;
+    color: #8e8e93;       /* iOS 标准次级文本灰 */
+    font-size: 11px;      /* 足够小，不干扰阅读 */
+    font-weight: 500;
+    margin: 24px 0 12px 0; /* 上方留多点空隙，区分不同时段 */
+    font-family: "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    user-select: none;    /* 防止复制文本时误选 */
+    clear: both;          /* 确保独占一行 */
+}
