@@ -1,5 +1,5 @@
 // ==================================================================================
-// 模块: Scribe (书记员 - 负责同步世界书)
+// 模块: Scribe (书记员 - 负责同步世界书) - v2.0 Fix Character Book
 // ==================================================================================
 (function() {
     window.ST_PHONE = window.ST_PHONE || {};
@@ -21,59 +21,83 @@
         return transcript;
     }
 
-    // 核心：更新世界书
+    // 核心：更新角色专属世界书 (Character Book)
     function updateWorldInfoEntry(contactName, content) {
-        // 1. 获取酒馆全局世界书对象
-        // 不同版本的酒馆变量名可能不同，这里尝试兼容获取
-        let context = null;
-        if (typeof SillyTavern !== 'undefined') {
-             context = SillyTavern.getContext();
-        }
-        
-        // 如果无法获取上下文，直接退出
-        if (!context || !context.worldInfo) return;
+        if (typeof SillyTavern === 'undefined') return;
 
-        const worldInfoList = context.worldInfo;
-        
-        // 2. 寻找专属词条
-        // 我们的策略是：为每个联系人维护一个唯一的词条
-        // 识别特征：comment 字段标记为 "ST_PHONE_AUTO_GEN"
-        let entry = worldInfoList.find(e => 
+        const context = SillyTavern.getContext();
+        // 1. 获取当前正在聊天的角色 ID
+        const charId = context.characterId;
+        if (charId === undefined || charId === null) return;
+
+        // 2. 获取角色对象
+        const character = context.characters[charId];
+        if (!character) return;
+
+        // 3. 确保角色数据中有 character_book 对象 (这是 V2 角色卡规范中的内置世界书)
+        if (!character.data.character_book) {
+            character.data.character_book = {
+                entries: [],
+                name: "Character Book"
+            };
+            console.log(`📱 [Scribe] 为角色 ${character.name} 初始化了内置世界书`);
+        }
+
+        const charBook = character.data.character_book;
+        // 确保 entries 是数组
+        if (!Array.isArray(charBook.entries)) {
+            charBook.entries = [];
+        }
+
+        // 4. 在角色专属书中查找条目
+        let entry = charBook.entries.find(e => 
             e.comment === `ST_PHONE_AUTO_${contactName}` || 
-            // 兼容性查找：如果没标记，尝试找 keys 匹配且由插件创建的
-            (e.keys.includes(contactName) && e.keys.includes('短信')) 
+            (e.keys && e.keys.includes(contactName) && e.content.includes('[短信记录:'))
         );
 
-        // 3. 构造词条数据
+        // 构造条目数据 (符合 V2 Spec)
+        // 注意：keys 最好是数组，以兼容不同版本的酒馆
+        const keysArray = [contactName, '手机', '短信', 'message', 'phone'];
+        
         const entryData = {
-            // 触发关键词：提到角色名、手机、短信时触发
-            keys: `${contactName},手机,短信,message,phone`,
-            // 这里的 content 就是我们要覆写的“快照”
+            keys: keysArray,
             content: content,
-            // 设为常量，确保一直生效（或者你可以设为 true 节省资源，看需求）
-            constant: false, 
-            // 标记这个词条是我们自动生成的
-            comment: `ST_PHONE_AUTO_${contactName}`,
-            // 启用状态
             enabled: true,
-            // 插入位置：插在前面作为背景设定，还是插在后面作为最近记忆？
-            // 建议：插在 Character 之后 (1) 或者 这里的 Order 逻辑视版本而定
-            position: 'before_char', 
-            // 关键：不递归扫描，防止死循环
-            selective: false 
+            insertion_order: 50, // 默认优先级
+            case_sensitive: false,
+            constant: false,
+            comment: `ST_PHONE_AUTO_${contactName}`, // 关键标记
+            selective: false,
+            secondary_keys: []
         };
 
+        let needSave = false;
+
         if (entry) {
-            // A. 存在 -> 覆盖 (这就是“自动删除”的奥义：用新的直接把旧的冲掉)
-            // 只有当内容真变了才更新，避免无意义的 IO
+            // A. 存在 -> 仅当内容变动时更新
             if (entry.content !== content) {
-                Object.assign(entry, entryData);
-                // console.log(`📱 [Scribe] 已更新 ${contactName} 的记忆快照`);
+                // 仅更新内容和必要的字段，保留用户可能手动调整过的设置（如权重）
+                entry.content = content;
+                entry.keys = keysArray; // 确保触发词也是新的
+                needSave = true;
+                // console.log(`📱 [Scribe] 更新了 ${contactName} 的短信记忆`);
             }
         } else {
-            // B. 不存在 -> 新建
-            worldInfoList.push(entryData);
-            console.log(`📱 [Scribe] 已新建 ${contactName} 的记忆快照`);
+            // B. 不存在 -> 推入新条目
+            charBook.entries.push(entryData);
+            needSave = true;
+            console.log(`📱 [Scribe] 新建了 ${contactName} 的短信记忆到角色卡`);
+        }
+
+        // 5. 触发保存 (关键步骤)
+        // 只有调用了保存函数，修改才会写入本地文件，并在刷新后保留
+        if (needSave) {
+            // saveCharacterDebounced 是酒馆全局提供的防抖保存函数，适合频繁调用
+            if (typeof saveCharacterDebounced === 'function') {
+                saveCharacterDebounced();
+            } else if (typeof saveCharacter === 'function') {
+                saveCharacter(charId);
+            }
         }
     }
 
@@ -88,12 +112,6 @@
                     updateWorldInfoEntry(contact.name, transcript);
                 }
             });
-            
-            // 触发酒馆保存（可选，防止刷新丢失，视具体 API 而定）
-            // 这里的 saveWorldInfo 是部分版本有的全局函数，如果没有也不会报错
-            if (typeof saveWorldInfo === 'function') {
-                // saveWorldInfo(); 
-            }
         }
     };
 })();
