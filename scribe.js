@@ -1,5 +1,5 @@
 // ==================================================================================
-// 模块: Scribe (书记员 - v3.9 Debug Detectvie Edition)
+// 模块: Scribe (书记员 - v3.95 UI Auto-Refresh)
 // ==================================================================================
 (function () {
 
@@ -102,7 +102,6 @@
         let bookObj = null;
         if (isEmbedded) {
             const char = SillyTavern.characters[charId];
-            // 这是一个深拷贝检查，看看内存里的数据到底长啥样
             if (!char.data.character_book) char.data.character_book = { entries: [] };
             bookObj = char.data.character_book;
         } else {
@@ -124,11 +123,6 @@
         const isDict = !Array.isArray(entriesCollection);
         const entryList = isDict ? Object.values(entriesCollection) : entriesCollection;
         
-        console.log(`📥 [Step 2] 数据已加载。当前条目总数: ${entryList.length}`);
-        // 打印所有条目的 comment 方便查阅
-        const allComments = entryList.map(e => e.comment).filter(c => c && c.startsWith('ST_PHONE'));
-        console.log(`👀 当前书中的手机短信条目:`, allComments);
-
         let modified = false;
 
         contacts.forEach(contact => {
@@ -136,39 +130,23 @@
             const content = buildContent(contact);
             if (!content) return;
 
-            console.groupCollapsed(`🔍 检查联系人: ${contact.name}`);
-            console.log(`📝 目标 Comment: ${comment}`);
-            console.log(`📏 新内容长度: ${content.length}`);
-
             // 查找
             let existingEntry = entryList.find(e => e.comment === comment);
 
-            // [探针 3] 比对逻辑监测
             if (!existingEntry) {
-                console.warn(`❌ 未找到旧条目 -> 判定为【新增】`);
-                // ！！！重点：如果这是你发的第二条消息，但这里显示“未找到”，说明读到的是旧数据（Dirty Read）！！！
-                
+                console.log(`🆕 新增条目: ${contact.name}`);
                 const newEntry = createEntry(contact.name, comment, content);
                 if (isDict) bookObj.entries[newEntry.uid] = newEntry;
                 else bookObj.entries.push(newEntry);
                 modified = true;
             } else {
-                console.log(`✅ 找到旧条目 (UID: ${existingEntry.uid})`);
-                console.log(`📏 旧内容长度: ${existingEntry.content.length}`);
-                
                 if (existingEntry.content !== content) {
-                    console.log(`⚡ 内容不一致 -> 判定为【更新】`);
-                    console.log(`   (旧结尾): ${existingEntry.content.slice(-20)}`);
-                    console.log(`   (新结尾): ${content.slice(-20)}`);
-                    
+                    console.log(`⚡ 更新条目: ${contact.name}`);
                     existingEntry.content = content;
                     existingEntry.enabled = true;
                     modified = true;
-                } else {
-                    console.log(`💤 内容完全一致 -> 判定为【跳过】`);
                 }
             }
-            console.groupEnd();
         });
 
         // 3. 提交与验证
@@ -179,13 +157,39 @@
                 if (SillyTavern.saveCharacterDebounced) SillyTavern.saveCharacterDebounced(charId);
                 else SillyTavern.saveCharacter(charId);
                 console.log("✅ 内存已更新 (内嵌模式)");
+                
+                // 内嵌模式下，尝试刷新字符编辑器界面（如果开着的话）
+                // 通常 ST 会监听 save 事件自动刷新，但为了保险：
+                if (typeof window.drawCharacterBook === 'function') {
+                    // 如果当前正好开着这个角色的书
+                    // 这是一个尝试性的刷新，不一定总是有效，视 ST 版本而定
+                }
+
             } else {
-                // 提交
+                // 全局书模式提交
                 await apiFetch('/api/worldinfo/edit', { name: targetBookName, data: bookObj });
                 console.log("✅ API 响应成功 (200 OK)");
                 
-                // 为了防止“脏读”，我们尝试在这个 session 里更新一下 ST 的本地缓存（如果有的话）
-                // 但主要还是靠下一次 fetch 强制拉取
+                // === 关键修复：主动刷新 UI ===
+                // 检查用户当前是否正看着这本世界书，如果是，强制 UI 重载
+                try {
+                    const editorSelect = document.getElementById('world_editor_select');
+                    // 如果编辑器下拉框存在，且选中的书名就是我们刚更新的这本书
+                    if (editorSelect && editorSelect.value === targetBookName) {
+                        console.log("🔄 检测到世界书编辑器已打开，正在刷新界面...");
+                        
+                        // 调用 ST 内部的加载函数 (兼容不同版本的函数名)
+                        const loadFunc = window.loadWorldInfo || (SillyTavern && SillyTavern.loadWorldInfo);
+                        if (typeof loadFunc === 'function') {
+                            loadFunc(targetBookName);
+                            console.log("✅ 界面刷新指令已发送");
+                        }
+                    } else {
+                        console.log("💤 编辑器未打开或未选中该书，跳过 UI 刷新");
+                    }
+                } catch(err) {
+                    console.warn("⚠️ UI 刷新尝试失败 (非致命错误):", err);
+                }
             }
         } else {
             console.log("🛑 [Step 3] 无需提交 (无变化)");
@@ -224,5 +228,5 @@
         forceSync: () => performSync(window.ST_PHONE.state.contacts)
     };
 
-    console.log('✅ ST-iOS-Phone: 书记员 v3.9 (Debug版已就绪)');
+    console.log('✅ ST-iOS-Phone: 书记员 v3.95 (UI自动刷新版已就绪)');
 })();
