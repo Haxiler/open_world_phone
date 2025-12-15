@@ -1,11 +1,10 @@
 // ==================================================================================
-// 模块: View (界面与交互) - v3.0 ST-1.14 Compatible
+// 模块: View (界面与交互) - v3.1 UI Polish (Settings Fix)
 // ==================================================================================
 (function() {
     if (document.getElementById('st-ios-phone-root')) return;
 
-    // 1. HTML 模板
-    // 注意：我们将 z-index 提升到了 20000 以防止被新版 ST 遮挡
+    // 1. HTML 模板 (设置页已彻底重构)
     const html = `
     <div id="st-ios-phone-root" style="position: relative; z-index: 20000;">
         <div id="st-phone-icon" title="打开/关闭手机">
@@ -93,21 +92,21 @@
                         </div>
                         <div style="padding: 20px 0;">
                             <div class="section-title">存储设置</div>
-                            <div style="background: white; border-top: 0.5px solid #c6c6c8; border-bottom: 0.5px solid #c6c6c8; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-size: 16px; color: #000;">存入世界书</span>
-                                    <select id="setting-worldbook-select" style="font-size: 15px; color: #007AFF; border: none; background: transparent; outline: none; text-align: right; max-width: 180px;">
-                                        <option value="">加载中...</option>
-                                    </select>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #efeff4; padding-top: 8px;">
-                                    <span style="font-size: 14px; color: #8e8e93;">或手动输入文件名:</span>
-                                    <input type="text" id="setting-worldbook-input" placeholder="例如: Phone_History" style="text-align: right; border: none; outline: none; font-size: 14px; color: #333; width: 150px; background: transparent;">
+                            
+                            <div class="ios-list-group">
+                                <div class="ios-list-item">
+                                    <span class="ios-label">存入世界书</span>
+                                    <div class="ios-select-wrapper">
+                                        <select id="setting-worldbook-select" class="ios-select-real">
+                                            <option value="">加载中...</option>
+                                        </select>
+                                        <svg class="ios-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c7c7cc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                                    </div>
                                 </div>
                             </div>
-                            <div style="padding: 8px 16px; font-size: 13px; color: #6d6d72;">
-                                推荐留空。留空时会自动检测当前角色卡绑定的世界书（Embed/Global），并自动创建/更新短信条目。<br/>
-                                仅当你需要将所有角色的短信强制存入同一本全局世界书时，才在此选择。
+                            <div class="ios-footer-text">
+                                推荐留空。系统会自动检测并使用当前角色卡绑定的世界书（Embedded/Global），为您自动创建短信条目。<br/>
+                                <br/>仅当您希望将所有不同角色的短信强行归档到同一本全局世界书时，才需在此手动选择。
                             </div>
                         </div>
                     </div>
@@ -155,7 +154,7 @@
     if(phoneWindow && dragHandle) makeDraggable(phoneWindow, dragHandle);
     if(phoneIcon) makeDraggable(phoneIcon, phoneIcon);
 
-    // 3. 辅助：渲染消息 (处理表情包和Markdown)
+    // 3. 辅助：渲染消息
     function renderMessageContent(text) {
         if(!text) return '';
         const bqbRegex = /\[bqb-(\d+)\]/g; 
@@ -170,7 +169,6 @@
         });
         const invalidBqbRegex = /\[bqb-([^\]\d]+)\]/g;
         html = html.replace(invalidBqbRegex, '');
-        // 简单支持 Markdown 图片
         const mdImgRegex = /!\[.*?\]\((.*?)\)/g;
         html = html.replace(mdImgRegex, '<img src="$1" alt="sticker" loading="lazy" />');
         return html;
@@ -362,7 +360,6 @@
                         img.onclick = () => {
                             const input = document.getElementById('msg-input');
                             input.value = `[bqb-${index}]`; 
-                            // 模拟点击发送，利用 Core.js 的监听逻辑
                             const sendBtn = document.getElementById('btn-send');
                             if(sendBtn) sendBtn.click();
                             panel.classList.add('hidden');
@@ -376,12 +373,11 @@
             }
         },
 
-        // --- 设置页逻辑 (修复版) ---
+        // --- 设置页逻辑 (UI更新: 移除Input逻辑) ---
         openSettings: async function() {
             const pageContacts = document.getElementById('page-contacts');
             const pageSettings = document.getElementById('page-settings');
             const select = document.getElementById('setting-worldbook-select');
-            const input = document.getElementById('setting-worldbook-input');
 
             // 1. 切换页面
             pageContacts.classList.add('hidden-left');
@@ -389,7 +385,7 @@
             pageSettings.classList.remove('hidden-right');
             pageSettings.classList.add('active');
 
-            // 2. 加载世界书列表 (安全调用新的 Scribe API)
+            // 2. 加载世界书列表
             select.innerHTML = '<option value="">加载中...</option>';
             
             let worldBooks = [];
@@ -397,7 +393,7 @@
                 worldBooks = await window.ST_PHONE.scribe.getWorldBookList();
             }
 
-            select.innerHTML = '<option value="">(推荐：自动跟随角色卡)</option>';
+            select.innerHTML = '<option value="">(推荐：自动跟随)</option>';
             
             const uniqueBooks = [...new Set(worldBooks)];
             uniqueBooks.forEach(name => {
@@ -410,17 +406,10 @@
 
             // 3. 回显状态
             const currentSelection = window.ST_PHONE.config.targetWorldBook;
-            if (currentSelection) {
-                if (uniqueBooks.includes(currentSelection)) {
-                    select.value = currentSelection;
-                    input.value = '';
-                } else {
-                    select.value = "";
-                    input.value = currentSelection;
-                }
+            if (currentSelection && uniqueBooks.includes(currentSelection)) {
+                select.value = currentSelection;
             } else {
                 select.value = "";
-                input.value = "";
             }
         },
 
@@ -436,11 +425,7 @@
         
         saveSettings: function() {
             const select = document.getElementById('setting-worldbook-select');
-            const input = document.getElementById('setting-worldbook-input');
-            
-            let val = input.value.trim();
-            if (!val) val = select.value;
-            
+            let val = select.value;
             window.ST_PHONE.config.targetWorldBook = val;
             
             if(localStorage) {
@@ -462,11 +447,8 @@
     document.getElementById('btn-open-settings').onclick = window.ST_PHONE.ui.openSettings;
     document.getElementById('btn-settings-back').onclick = window.ST_PHONE.ui.closeSettings;
     
-    document.getElementById('setting-worldbook-select').addEventListener('change', (e) => {
-        document.getElementById('setting-worldbook-input').value = ''; 
-        window.ST_PHONE.ui.saveSettings();
-    });
-    document.getElementById('setting-worldbook-input').addEventListener('input', window.ST_PHONE.ui.saveSettings);
+    // 只有 Select 变动触发保存，Input 已移除
+    document.getElementById('setting-worldbook-select').addEventListener('change', window.ST_PHONE.ui.saveSettings);
 
     document.getElementById('phone-search-bar').addEventListener('input', (e) => {
         const query = e.target.value.toLowerCase().trim();
@@ -501,7 +483,6 @@
                 } else {
                     e.preventDefault();
                     if (e.target.value.trim()) {
-                        // 触发 core.js 绑定的 sendDraftToInput
                         const sendBtn = document.getElementById('btn-send');
                         if(sendBtn) sendBtn.click();
                     }
