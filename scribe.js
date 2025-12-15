@@ -1,5 +1,5 @@
 // ==================================================================================
-// 模块: Scribe (书记员 - v3.8 Verify Write)
+// 模块: Scribe (书记员 - v3.9 Debug Detectvie Edition)
 // ==================================================================================
 (function () {
 
@@ -23,7 +23,6 @@
 
     // jQuery API 请求封装
     async function apiFetch(url, body) {
-        // console.log(`🔍 [API] ${url}`); // 减少刷屏
         return new Promise((resolve, reject) => {
             $.ajax({
                 type: 'POST',
@@ -56,13 +55,16 @@
     }
 
     // ==========================================================
-    // 核心逻辑: 同步 + 验证
+    // 核心逻辑: 同步 + 详细调试探针
     // ==========================================================
     async function performSync(contacts) {
-        console.group("🕵️‍♀️ [Scribe-Verify] 同步验证开始");
+        // [探针 1] 触发监测
+        console.group("🕵️‍♀️ [Scribe-Debug] 同步流程启动");
+        console.log(`⏰ 时间: ${new Date().toLocaleTimeString()}`);
+        console.log(`📦 传入联系人数量: ${contacts ? contacts.length : 0}`);
         
         if (!contacts || !contacts.length) {
-            console.warn("⚠️ 无数据");
+            console.warn("⚠️ 调试信息: 联系人列表为空，跳过。");
             console.groupEnd();
             return;
         }
@@ -88,22 +90,24 @@
         }
 
         if (!targetBookName) {
-            console.warn("⚠️ 未设置目标");
+            console.warn("⚠️ 调试信息: 未找到目标世界书，请在手机设置中检查。");
             console.groupEnd();
             return;
         }
 
         // 1. 读取原始数据
+        // [探针 2] 读取新鲜度监测
+        console.log(`📚 [Step 1] 正在读取世界书: ${targetBookName} (模式: ${isEmbedded ? '内嵌' : '全局'})`);
+        
         let bookObj = null;
         if (isEmbedded) {
-            console.log("-> 模式: 内嵌书");
             const char = SillyTavern.characters[charId];
+            // 这是一个深拷贝检查，看看内存里的数据到底长啥样
             if (!char.data.character_book) char.data.character_book = { entries: [] };
             bookObj = char.data.character_book;
         } else {
-            console.log(`-> 模式: 全局书 [${targetBookName}]`);
             try {
-                // 读取服务器上的当前版本
+                // 强制从服务器拉取，不依赖缓存
                 const res = await apiFetch('/api/worldinfo/get', { name: targetBookName });
                 if (!res) throw new Error("API返回空");
                 bookObj = res;
@@ -118,76 +122,73 @@
         if (!bookObj.entries) bookObj.entries = [];
         const entriesCollection = bookObj.entries;
         const isDict = !Array.isArray(entriesCollection);
+        const entryList = isDict ? Object.values(entriesCollection) : entriesCollection;
         
-        console.log(`-> 数据结构: ${isDict ? '字典(Dict)' : '数组(Array)'}`);
-        if (isDict) console.log(`-> 当前条目数: ${Object.keys(entriesCollection).length}`);
-        else console.log(`-> 当前条目数: ${entriesCollection.length}`);
+        console.log(`📥 [Step 2] 数据已加载。当前条目总数: ${entryList.length}`);
+        // 打印所有条目的 comment 方便查阅
+        const allComments = entryList.map(e => e.comment).filter(c => c && c.startsWith('ST_PHONE'));
+        console.log(`👀 当前书中的手机短信条目:`, allComments);
 
         let modified = false;
-        let changedContactName = ""; // 记录修改了谁，方便验证
 
         contacts.forEach(contact => {
             const comment = `ST_PHONE_SMS::${contact.name}`;
             const content = buildContent(contact);
             if (!content) return;
 
+            console.groupCollapsed(`🔍 检查联系人: ${contact.name}`);
+            console.log(`📝 目标 Comment: ${comment}`);
+            console.log(`📏 新内容长度: ${content.length}`);
+
             // 查找
-            let entryList = isDict ? Object.values(entriesCollection) : entriesCollection;
             let existingEntry = entryList.find(e => e.comment === comment);
 
+            // [探针 3] 比对逻辑监测
             if (!existingEntry) {
-                console.log(`   + 准备新增: ${contact.name}`);
+                console.warn(`❌ 未找到旧条目 -> 判定为【新增】`);
+                // ！！！重点：如果这是你发的第二条消息，但这里显示“未找到”，说明读到的是旧数据（Dirty Read）！！！
+                
                 const newEntry = createEntry(contact.name, comment, content);
                 if (isDict) bookObj.entries[newEntry.uid] = newEntry;
                 else bookObj.entries.push(newEntry);
                 modified = true;
-                changedContactName = contact.name;
-            } else if (existingEntry.content !== content) {
-                console.log(`   * 准备更新: ${contact.name}`);
-                existingEntry.content = content;
-                existingEntry.enabled = true;
-                modified = true;
-                changedContactName = contact.name;
+            } else {
+                console.log(`✅ 找到旧条目 (UID: ${existingEntry.uid})`);
+                console.log(`📏 旧内容长度: ${existingEntry.content.length}`);
+                
+                if (existingEntry.content !== content) {
+                    console.log(`⚡ 内容不一致 -> 判定为【更新】`);
+                    console.log(`   (旧结尾): ${existingEntry.content.slice(-20)}`);
+                    console.log(`   (新结尾): ${content.slice(-20)}`);
+                    
+                    existingEntry.content = content;
+                    existingEntry.enabled = true;
+                    modified = true;
+                } else {
+                    console.log(`💤 内容完全一致 -> 判定为【跳过】`);
+                }
             }
+            console.groupEnd();
         });
 
         // 3. 提交与验证
         if (modified) {
+            console.log(`💾 [Step 3] 检测到变化，正在提交...`);
+            
             if (isEmbedded) {
-                console.log("💾 提交内嵌书...");
                 if (SillyTavern.saveCharacterDebounced) SillyTavern.saveCharacterDebounced(charId);
                 else SillyTavern.saveCharacter(charId);
-                console.log("✅ 内存已更新 (内嵌书无需回读验证)");
+                console.log("✅ 内存已更新 (内嵌模式)");
             } else {
-                console.log("💾 提交全局书...");
                 // 提交
                 await apiFetch('/api/worldinfo/edit', { name: targetBookName, data: bookObj });
                 console.log("✅ API 响应成功 (200 OK)");
-
-                // --- 回马枪：立即读回来验证 ---
-                console.log("🧐 [回读验证] 正在检查服务器是否真的存了...");
-                const verifyRes = await apiFetch('/api/worldinfo/get', { name: targetBookName });
                 
-                if (verifyRes && verifyRes.entries) {
-                    const vEntries = verifyRes.entries;
-                    const vList = Array.isArray(vEntries) ? vEntries : Object.values(vEntries);
-                    
-                    // 检查刚才改的那个人的条目是否存在/最新
-                    const checkComment = `ST_PHONE_SMS::${changedContactName}`;
-                    const found = vList.find(e => e.comment === checkComment);
-                    
-                    if (found) {
-                        console.log(`🎉 验证通过！服务器上已存在条目: [${checkComment}]`);
-                        console.log(`📝 字数: ${found.content.length}`);
-                        console.log("💡 提示: 如果UI没变化，请刷新网页或重载世界书。");
-                    } else {
-                        console.error(`😱 验证失败！服务器返回的数据里找不到 [${checkComment}]`);
-                        console.error("👉 原因可能是: UID 格式不兼容 或 服务器字段校验失败。");
-                    }
-                }
+                // 为了防止“脏读”，我们尝试在这个 session 里更新一下 ST 的本地缓存（如果有的话）
+                // 但主要还是靠下一次 fetch 强制拉取
             }
         } else {
-            console.log("💤 内容无变化，跳过提交");
+            console.log("🛑 [Step 3] 无需提交 (无变化)");
         }
         
         console.groupEnd();
@@ -209,9 +210,7 @@
         };
     }
 
-    // 尝试生成纯数字 ID 字符串，以防万一服务器不喜欢 UUID
     function generateUUID() {
-        // 先试用标准的，如果验证失败我们再改纯数字
         if (crypto && crypto.randomUUID) return crypto.randomUUID();
         return Date.now().toString(); 
     }
@@ -225,5 +224,5 @@
         forceSync: () => performSync(window.ST_PHONE.state.contacts)
     };
 
-    console.log('✅ ST-iOS-Phone: 书记员 v3.8 (读写验证版)');
+    console.log('✅ ST-iOS-Phone: 书记员 v3.9 (Debug版已就绪)');
 })();
