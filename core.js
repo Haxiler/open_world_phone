@@ -1,26 +1,18 @@
 // ==================================================================================
-// 模块: Core (核心逻辑 - v3.6 Robust & Logging)
+// 模块: Core (核心逻辑 - v3.6 MutationObserver)
 // ==================================================================================
 (function() {
-    // 1. 更稳健的启动检测：必须同时等待 SillyTavern 上下文 和 #chat 容器
-    let retryCount = 0;
+    // 1. 稳健启动：等待 #chat 容器出现
     const waitForST = setInterval(() => {
-        retryCount++;
         const hasST = typeof SillyTavern !== 'undefined' && SillyTavern.getContext;
         const hasChat = document.getElementById('chat');
         
         if (hasST && hasChat) {
             clearInterval(waitForST);
-            console.log(`%c📱 ST-iOS-Phone: 核心已挂载 (重试次数: ${retryCount})`, "color: green; font-weight: bold;");
+            console.log('📱 ST-iOS-Phone: 核心已挂载 (Observer Mode)');
             initCore();
         }
-        // 如果等了太久(30秒)，强制启动轮询保底
-        if (retryCount > 300) {
-            clearInterval(waitForST);
-            console.warn('ST-Phone: 等待超时，强制启动轮询模式');
-            setInterval(scanChatHistory, 2000);
-        }
-    }, 100);
+    }, 200);
 
     function getSystemTimeStr() {
         const now = new Date();
@@ -46,7 +38,6 @@
         return now;
     }
 
-    // 初始化状态
     window.ST_PHONE.state.lastUserSendTime = 0;
     window.ST_PHONE.state.pendingQueue = []; 
     window.ST_PHONE.state.virtualTime = getSystemTimeStr(); 
@@ -67,9 +58,6 @@
         return myNames.some(n => n && name.toLowerCase() === n.toLowerCase());
     }
 
-    // ----------------------------------------------------------------------
-    // 核心扫描逻辑
-    // ----------------------------------------------------------------------
     function scanChatHistory() {
         if (typeof SillyTavern === 'undefined') return;
         
@@ -83,7 +71,6 @@
             let lastParsedSmsWasMine = false;
             let newContactsMap = new Map();
 
-            // 全量扫描
             chat.forEach(msg => {
                 if (!msg.mes) return;
                 const cleanMsg = msg.mes.replace(/```/g, ''); 
@@ -172,7 +159,7 @@
                 lastXmlMsgCount = currentXmlMsgCount;
             }
 
-            // 处理 Pending
+            // Pending 处理
             const queue = window.ST_PHONE.state.pendingQueue;
             const now = Date.now();
             const MAX_PENDING_TIME = 600000; 
@@ -207,7 +194,6 @@
                 });
             }
 
-            // 排序与 UI 更新
             let contactList = Array.from(newContactsMap.values());
             contactList.forEach(c => c.hasUnread = window.ST_PHONE.state.unreadIds.has(c.id));
             contactList.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
@@ -215,6 +201,7 @@
 
             if (window.ST_PHONE.ui.updateStatusBarTime) window.ST_PHONE.ui.updateStatusBarTime(window.ST_PHONE.state.virtualTime);
 
+            // 触发存档
             if (window.ST_PHONE.scribe && typeof window.ST_PHONE.scribe.sync === 'function') {
                 try { window.ST_PHONE.scribe.sync(window.ST_PHONE.state.contacts); } catch(e) {}
             }
@@ -237,9 +224,6 @@
         }
     }
 
-    // ----------------------------------------------------------------------
-    // 发送逻辑
-    // ----------------------------------------------------------------------
     async function sendDraftToInput() {
         const input = document.getElementById('msg-input'); 
         const text = input.value.trim();
@@ -250,7 +234,6 @@
         let contact = window.ST_PHONE.state.contacts.find(c => c.id === activeId);
         const targetName = contact ? contact.name : activeId;
         const timeToSend = window.ST_PHONE.state.virtualTime;
-
         const xmlString = `<msg>{{user}}|${targetName}|${text}|${timeToSend}</msg>`;
 
         try {
@@ -259,7 +242,6 @@
                 const currentContent = mainTextArea.value;
                 const prefix = currentContent ? '\n' : '';
                 mainTextArea.value = currentContent + prefix + xmlString + '\n';
-                
                 mainTextArea.dispatchEvent(new Event('input', { bubbles: true }));
                 mainTextArea.focus();
                 mainTextArea.scrollTop = mainTextArea.scrollHeight; 
@@ -268,7 +250,6 @@
                     text: text, target: targetName, sendTime: Date.now()
                 });
                 window.ST_PHONE.state.lastUserSendTime = Date.now();
-
                 input.value = '';
                 scanChatHistory(); 
             }
@@ -277,34 +258,27 @@
         }
     }
 
-    // ----------------------------------------------------------------------
-    // 初始化 (MutationObserver 模式)
-    // ----------------------------------------------------------------------
     function initCore() {
         const sendBtn = document.getElementById('btn-send');
         if(sendBtn) sendBtn.onclick = sendDraftToInput;
 
-        scanChatHistory(); // 立即执行一次
+        scanChatHistory();
 
+        // 【天眼系统】 MutationObserver
+        // 监控聊天框的变化，自动触发扫描，替代 EventSource
         const chatContainer = document.getElementById('chat');
         if (chatContainer) {
-            // 防抖：200ms
-            const debouncedScan = debounce(() => {
-                // 如果您在控制台看到这个 🔍，说明监听器正在正常工作！
-                console.log('ST-Phone: 🔍 检测到消息变动，正在扫描...'); 
+            const observer = new MutationObserver(debounce(() => {
                 scanChatHistory();
-            }, 200);
-
-            const observer = new MutationObserver(debouncedScan);
+            }, 200));
             
             observer.observe(chatContainer, { 
-                childList: true, // 监听新气泡
-                subtree: true,   // 监听内部变化
-                characterData: true // 监听文字编辑
+                childList: true, 
+                subtree: true,   
+                characterData: true 
             });
-            console.log('📱 ST-iOS-Phone: 监听器已启动 (Target: #chat)');
         } else {
-            console.warn('ST-Phone: 异常！初始化时有 #chat 但现在找不到了？降级为轮询');
+            // 保底轮询
             setInterval(scanChatHistory, 2000);
         }
     }
