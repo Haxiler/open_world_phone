@@ -289,27 +289,31 @@
         },
 
         openChat: function(contact) {
+            // 1. 设置当前活跃联系人
             window.ST_PHONE.state.activeContactId = contact.id;
+
+            // 2. 从未读集合中移除该ID
             if (window.ST_PHONE.state.unreadIds) {
                 window.ST_PHONE.state.unreadIds.delete(contact.id);
             }
+
+            // 【关键修复】手动强制更新当前联系人对象的未读状态
+            // 这样 renderContacts 渲染时就能立即读取到 false，而不用等 core.js 下一次扫描
+            contact.hasUnread = false; 
+
+            // 3. 重新渲染通讯录（此时蓝点会立即消失）
             window.ST_PHONE.ui.renderContacts();
 
+            // 4. 初始化聊天界面
             document.getElementById('chat-title').innerText = contact.name;
             window.ST_PHONE.ui.renderChat(contact, true);
+            
+            // 5. 切换视图
             document.getElementById('sticker-panel').classList.add('hidden');
             document.getElementById('page-contacts').classList.add('hidden-left');
             document.getElementById('page-contacts').classList.remove('active');
             document.getElementById('page-chat').classList.remove('hidden-right');
             document.getElementById('page-chat').classList.add('active');
-        },
-        closeChat: function() {
-            window.ST_PHONE.state.activeContactId = null;
-            document.getElementById('page-contacts').classList.remove('hidden-left');
-            document.getElementById('page-contacts').classList.add('active');
-            document.getElementById('page-chat').classList.add('hidden-right');
-            document.getElementById('page-chat').classList.remove('active');
-            window.ST_PHONE.ui.renderContacts();
         },
         toggleNewMsgSheet: function(show) {
             const sheet = document.getElementById('page-new-msg');
